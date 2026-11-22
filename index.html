@@ -63,6 +63,13 @@
     .st-T2 { background: #166534; color: #dcfce7; }
     .st-SL { background: var(--sell-bg); color: var(--sell); }
     .st-BE { background: #3a3315; color: #fde68a; }
+    .checker { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+    .checker label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+    .checkrow { display: flex; gap: 6px; }
+    .checkrow input { width: 230px; text-transform: uppercase; }
+    .checkrow button { cursor: pointer; }
+    #checkOut { flex: 1; min-width: 280px; line-height: 1.6; font-size: 13px; }
+    #checkOut b { color: var(--text); }
     .note table { width: auto; background: transparent; font-size: 12px; margin: 6px 0; }
     .note td, .note th { padding: 4px 10px; position: static; }
   </style>
@@ -115,11 +122,30 @@
         <option value="8">8 of 8 (strictest)</option>
       </select>
     </label>
+    <label title="How old a UT Bot buy/sell flip can be and still be listed. TradingView keeps showing old signals on the chart; this scanner lists fresh ones by default.">Signal age
+      <select id="lookback">
+        <option value="1">Last candle only</option>
+        <option value="3" selected>Last 3 candles (fresh)</option>
+        <option value="5">Last 5 candles</option>
+        <option value="10">Last 10 candles</option>
+        <option value="20">Last 20 candles</option>
+      </select>
+    </label>
     <button class="primary" id="scanBtn" onclick="runScan()">Scan Now</button>
     <div class="toggles">
       <label class="check" title="Like a TradingView alert set to 'Once Per Bar Close'. Untick to include the candle that is still forming (it can repaint)."><input type="checkbox" id="confirmedOnly" checked /> Closed candles only (no repaint)</label>
       <label class="check"><input type="checkbox" id="autoScan" onchange="toggleAutoScan()" /> Auto-scan every 60s</label>
     </div>
+  </div>
+
+  <div class="checker">
+    <label>Check a stock (compare with your TradingView chart)
+      <span class="checkrow">
+        <input type="text" id="checkSym" placeholder="NSE symbol, e.g. NESTLEIND" onkeydown="if(event.key==='Enter')checkStock()" />
+        <button onclick="checkStock()">Check</button>
+      </span>
+    </label>
+    <div id="checkOut" class="sm">Uses the timeframe and UT Bot settings selected above.</div>
   </div>
 
   <div class="bar"><div id="progress"></div></div>
@@ -159,6 +185,7 @@
     <b>When to expect the first confirmed signal (NSE opens 9:15 IST):</b> a signal is confirmed only when its candle <b>closes</b>. The earliest possible time is therefore 9:16 on 1m, 9:20 on 5m, 9:30 on 15m, 9:45 on 30m, 10:15 on 1h and 10:30 on 75m.
     Signals from candles that start before 9:30 are flagged <span class="warn">⚠ opening candle</span>. Those candles carry the overnight gap and the opening rush, so volume and VWAP look extreme and many signals fail.
     A practical routine is to wait out the first 15 minutes, then take 5m signals from about <b>9:30–9:45</b> onward, using the 15m signal (first one at 9:30) as the trend filter. Avoid new entries after about 2:45 pm, and square off by 3:15 pm.<br />
+    <b>Why TradingView shows a signal the scanner doesn't:</b> TradingView keeps every past BUY/SELL label on the chart, so a buy from two weeks ago is still visible. The scanner, by default, lists only <b>fresh</b> flips from the last 3 candles that also pass your confirmation level, because an old signal is usually no longer a good entry. Use <b>"Check a stock"</b> to see any stock's current UT Bot state and signal date, or raise <b>"Signal age"</b> to list older signals.<br />
     <b>Matching TradingView:</b> the UT Bot, Supertrend, VWAP, EMA, RSI and MACD calculations follow TradingView's formulas, and candles are anchored at 9:15 IST like TradingView's NSE charts. With the same settings (UT Bot Key Value 1, ATR 10) and "Closed candles only" ticked, signals should line up with the "UT Bot Alerts" indicator on the same timeframe.
     Small differences can still happen. Prices here come from Yahoo Finance, not NSE's own feed, so a candle's high/low can differ by a few paise. A price sitting right on the stop line can then flip one candle earlier or later. Always confirm on the chart before trading.
   </div>
@@ -228,6 +255,7 @@
       keyValue: document.getElementById("keyValue").value,
       atrPeriod: document.getElementById("atrPeriod").value,
       minConfirm: document.getElementById("minConfirm").value,
+      lookback: document.getElementById("lookback").value,
     });
     if (!document.getElementById("confirmedOnly").checked) params.set("live", "1");
     currentTf = params.get("interval");
@@ -371,6 +399,48 @@
         <td>${time}${s.openingCandle ? `<div class="warn" title="Signal came from a candle that started before 9:30 IST. Opening gaps and volatility make these less reliable.">⚠ opening candle</div>` : ""}</td>
       </tr>`;
     }).join("");
+  }
+
+  // Shows one stock's current UT Bot state, the date of its last flip and the setup,
+  // whatever the signal-age / confirmation filters say.
+  async function checkStock() {
+    const sym = document.getElementById("checkSym").value.trim().toUpperCase().replace(/\.NS$/, "");
+    const out = document.getElementById("checkOut");
+    if (!sym) return;
+    const tf = document.getElementById("interval").value;
+    const params = new URLSearchParams({
+      inspect: "1", symbols: sym, interval: tf,
+      keyValue: document.getElementById("keyValue").value,
+      atrPeriod: document.getElementById("atrPeriod").value,
+    });
+    if (!document.getElementById("confirmedOnly").checked) params.set("live", "1");
+    out.textContent = `Checking ${sym}...`;
+    try {
+      const r = await (await fetch(`/api/scan?${params}`)).json();
+      const x = r.states?.[sym];
+      if (!x || x.error || !x.side) { out.textContent = x?.error || "Not enough data for this stock."; return; }
+      const daily = !INTRADAY(tf);
+      const when = (ts) => daily
+        ? new Date(ts * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" })
+        : ist(ts, true);
+      const lb = +document.getElementById("lookback").value;
+      const minC = +document.getElementById("minConfirm").value;
+      const st = x.setup;
+      const reasons = [];
+      if (x.barsSinceFlip >= lb) reasons.push(`the ${x.side} flip was ${x.barsSinceFlip} candles ago, older than your "Signal age" setting (${lb})`);
+      if (!daily && x.lastFlipTime && new Date(x.lastFlipTime * 1000 + 19800000).toISOString().slice(0, 10) !== new Date(x.lastTime * 1000 + 19800000).toISOString().slice(0, 10)) reasons.push("intraday scans only list flips from today's session");
+      if (st && st.score < minC) reasons.push(`only ${st.score} of 8 confirmations pass now (you require ${minC})`);
+      const listed = reasons.length === 0;
+      out.innerHTML = `
+        <b>${esc(sym)}</b> on <b>${esc(tf)}</b>: UT Bot is in <span class="badge ${x.side}">${x.side}</span> mode since <b>${when(x.lastFlipTime)}</b> (${x.barsSinceFlip} candle${x.barsSinceFlip === 1 ? "" : "s"} ago).
+        Last close ₹${fmt(x.close)}, UT trailing stop ₹${fmt(x.trailingStop)}.
+        ${st ? `Confirmations now: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
+        ${listed ? `<span class="up">This stock appears in the scan with your current settings.</span>`
+          : `<span class="warn">Not listed in the scan because ${reasons.join("; and ")}.</span> Raise "Signal age" or lower "Min confirmations" to include it.`}
+        ${x.closestGapPct != null && x.closestGapPct < 0.1 ? `<br /><span class="warn">⚠ On ${when(x.closestTime)} the close was within ${fmt(x.closestGapPct)}% of the stop line. Tiny price differences between data feeds (Yahoo vs TradingView's NSE feed) can make TradingView flip there and show a different signal date.</span>` : ""}`;
+    } catch {
+      out.textContent = "Check failed. Please try again.";
+    }
   }
 
   function toggleAutoScan() {

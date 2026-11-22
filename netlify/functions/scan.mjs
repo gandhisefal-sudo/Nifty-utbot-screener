@@ -1,4 +1,4 @@
-import { evaluate } from "../../lib/strategy.mjs";
+import { evaluate, utState } from "../../lib/strategy.mjs";
 import { getCandles, TIMEFRAMES, isIntraday } from "../../lib/candles.mjs";
 
 const MAX_SYMBOLS = 60;
@@ -11,18 +11,34 @@ export default async (req) => {
   const atrPeriod = Math.min(Math.max(parseInt(p.get("atrPeriod"), 10) || 10, 1), 100);
   const mc = parseInt(p.get("minConfirm"), 10);
   const minConfirm = Number.isNaN(mc) ? 6 : Math.min(Math.max(mc, 0), 8);
+  // How many candles back a UT Bot flip may be and still count as a signal (default: last 3).
+  const lookback = Math.min(Math.max(parseInt(p.get("lookback"), 10) || 3, 1), 50);
+  const inspect = p.get("inspect") === "1";
   const symbols = (p.get("symbols") || "")
     .split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z0-9&\-]{1,20}$/.test(s))
     .slice(0, MAX_SYMBOLS);
 
   if (!symbols.length) return Response.json({ error: "Pass ?symbols=RELIANCE,TCS,..." }, { status: 400 });
 
+  if (inspect) {
+    const states = {};
+    await Promise.all(symbols.slice(0, 5).map(async (symbol) => {
+      try {
+        const candles = await getCandles(symbol, interval, { confirmedOnly });
+        states[symbol] = { ...utState(candles, { keyValue, atrPeriod }), quote: candles.quote };
+      } catch {
+        states[symbol] = { error: "No data for this symbol. Use the NSE symbol, e.g. NESTLEIND." };
+      }
+    }));
+    return Response.json({ interval, confirmedOnly, states }, { headers: { "Cache-Control": "no-store" } });
+  }
+
   const failed = [];
   const signals = [];
   await Promise.all(symbols.map(async (symbol) => {
     try {
       const candles = await getCandles(symbol, interval, { confirmedOnly });
-      const sig = evaluate(candles, { keyValue, atrPeriod, minConfirm, intraday: isIntraday(interval) });
+      const sig = evaluate(candles, { keyValue, atrPeriod, minConfirm, lookback, intraday: isIntraday(interval) });
       if (sig) signals.push({ symbol, ...sig, quote: candles.quote });
     } catch {
       failed.push(symbol);
