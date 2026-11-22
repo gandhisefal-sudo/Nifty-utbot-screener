@@ -77,15 +77,30 @@
 <body>
 <div class="wrap">
   <h1>NSE Intraday Signal Scanner</h1>
-  <div class="sub">The stock list comes from NSE's official index files. Each stock is checked for a fresh UT Bot buy/sell flip, confirmed by trend (Supertrend, VWAP, EMA 9/21), momentum (RSI, MACD, ADX, ROC) and volume. Prices and trade status refresh live during market hours.</div>
+  <div class="sub">The stock list comes from NSE's official files: Nifty indices or every NSE stock in the EQ series. Each stock is checked for a fresh UT Bot buy/sell flip, confirmed by trend (Supertrend, VWAP, EMA 9/21), momentum (RSI, MACD, ADX, ROC) and volume. Prices and trade status refresh live during market hours.</div>
 
   <div class="controls">
     <label>Stocks (from NSE)
-      <select id="index">
-        <option value="nifty50">Nifty 50</option>
-        <option value="nifty100">Nifty 100</option>
-        <option value="nifty200">Nifty 200</option>
-        <option value="nifty500" selected>Nifty 500</option>
+      <select id="index" onchange="if (document.getElementById('autoScan').checked) toggleAutoScan(); else document.getElementById('autoLabel').textContent = autoEvery() > 60000 ? 'every 3 min' : 'every 60s';">
+        <optgroup label="Nifty indices">
+          <option value="nifty50">Nifty 50</option>
+          <option value="nifty100">Nifty 100</option>
+          <option value="nifty200">Nifty 200</option>
+          <option value="nifty500" selected>Nifty 500</option>
+        </optgroup>
+        <optgroup label="Beyond Nifty">
+          <option value="nonNifty">Non-Nifty stocks (~1,900)</option>
+          <option value="allEq">All NSE stocks (~2,400)</option>
+        </optgroup>
+      </select>
+    </label>
+    <label title="Average daily traded value over recent sessions. Thinly traded stocks have wide spreads, gaps and unreliable stop losses for intraday trading.">Min liquidity (avg daily value)
+      <select id="minTurnover">
+        <option value="0">Any (no filter)</option>
+        <option value="1">₹1 Cr+</option>
+        <option value="5" selected>₹5 Cr+</option>
+        <option value="25">₹25 Cr+</option>
+        <option value="100">₹100 Cr+</option>
       </select>
     </label>
     <label>Timeframe
@@ -134,7 +149,7 @@
     <button class="primary" id="scanBtn" onclick="runScan()">Scan Now</button>
     <div class="toggles">
       <label class="check" title="Like a TradingView alert set to 'Once Per Bar Close'. Untick to include the candle that is still forming (it can repaint)."><input type="checkbox" id="confirmedOnly" checked /> Closed candles only (no repaint)</label>
-      <label class="check"><input type="checkbox" id="autoScan" onchange="toggleAutoScan()" /> Auto-scan every 60s</label>
+      <label class="check"><input type="checkbox" id="autoScan" onchange="toggleAutoScan()" /> Auto-scan <span id="autoLabel">every 60s</span></label>
     </div>
   </div>
 
@@ -216,8 +231,10 @@
 </div>
 
 <script>
-  const BATCH = 50, CONCURRENCY = 4;
-  const LIVE_EVERY = 15000;
+  const BATCH = 50, CONCURRENCY = 5;
+  // Big lists are re-scanned less often to stay under Yahoo Finance's rate limit.
+  const autoEvery = () => (["nonNifty", "allEq"].includes(document.getElementById("index").value) ? 180000 : 60000);
+  const liveEvery = () => (lastSignals.length > 100 ? 30000 : 15000);
   let currentTf = "5m", timer = null, liveTimer = null, scanning = false, lastSignals = [], seen = new Set(), sideFilter = "ALL", names = {}, live = {}, liveAt = null;
   const INTRADAY = (tf) => !["1d", "1wk"].includes(tf);
 
@@ -256,6 +273,7 @@
       atrPeriod: document.getElementById("atrPeriod").value,
       minConfirm: document.getElementById("minConfirm").value,
       lookback: document.getElementById("lookback").value,
+      minTurnover: document.getElementById("minTurnover").value,
     });
     if (!document.getElementById("confirmedOnly").checked) params.set("live", "1");
     currentTf = params.get("interval");
@@ -298,6 +316,8 @@
         `<span><b style="color:var(--buy)">${buys} BUY</b> · <b style="color:var(--sell)">${signals.length - buys} SELL</b></span>`,
         lastBar ? `<span>Latest candle: ${ist(lastBar, true)} IST</span>` : "",
         updatedAt ? `<span>Updated ${new Date(updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST</span>` : "",
+        +params.get("minTurnover") > 0 ? `<span>Liquidity filter: ₹${esc(params.get("minTurnover"))} Cr+/day</span>` : "",
+        failed > symbols.length * 0.1 ? `<span class="warn">⚠ ${failed} stocks returned no data. Yahoo Finance may be rate-limiting; wait a minute and scan again.</span>` : "",
       ].join("");
       render();
       refreshLive();
@@ -333,9 +353,9 @@
       await Promise.all(calls);
       liveAt = new Date();
       render(prev);
-      document.getElementById("liveInfo").textContent = `Prices updated ${liveAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST${open ? ` · refreshing every ${LIVE_EVERY / 1000}s` : ""}`;
+      document.getElementById("liveInfo").textContent = `Prices updated ${liveAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST${open ? ` · refreshing every ${liveEvery() / 1000}s` : ""}`;
     }
-    if (open) liveTimer = setTimeout(refreshLive, LIVE_EVERY);
+    if (open) liveTimer = setTimeout(refreshLive, liveEvery());
   }
 
   const pnlOf = (s) => {
@@ -392,7 +412,7 @@
         <td class="num sl">${fmt(s.stopLoss)}<div class="sm">risk ${s.riskPct}%</div></td>
         <td class="num tg">${fmt(s.target1)}<div class="sm">book 50%</div></td>
         <td class="num tg">${fmt(s.target2)}</td>
-        <td class="num">${s.rvol != null ? `RVOL <b>${fmt(s.rvol)}×</b>` : ""}<div class="sm">spike ${fmt(s.volumeRatio)}× · pressure ${Math.round(s.volPressure ?? 0)}%</div><div class="sm">day vol ${q.dayVolume ? Number(q.dayVolume).toLocaleString("en-IN") : "—"}</div></td>
+        <td class="num">${s.rvol != null ? `RVOL <b>${fmt(s.rvol)}×</b>` : ""}<div class="sm">spike ${fmt(s.volumeRatio)}× · pressure ${Math.round(s.volPressure ?? 0)}%</div><div class="sm">day vol ${q.dayVolume ? Number(q.dayVolume).toLocaleString("en-IN") : "—"}</div><div class="sm">avg value ₹${s.turnoverCr != null ? fmt(s.turnoverCr) : "—"} Cr/day</div></td>
         <td><span class="meter"><i style="width:${s.momentum}%;background:${momColor}"></i></span><b>${s.momentum}</b><div class="sm">ADX ${fmt(s.adx)} · RSI ${fmt(s.rsi)} · ROC ${s.roc >= 0 ? "+" : ""}${fmt(s.roc)}%</div></td>
         <td>${statusCell(s)}</td>
         <td><div class="chips">${s.checks.map((c) => `<span class="chip ${c.ok ? "ok" : ""}">${esc(c.name)}</span>`).join("")}</div></td>
@@ -444,7 +464,9 @@
   }
 
   function toggleAutoScan() {
-    if (document.getElementById("autoScan").checked) { runScan(); timer = setInterval(runScan, 60000); }
+    clearInterval(timer);
+    document.getElementById("autoLabel").textContent = autoEvery() > 60000 ? "every 3 min" : "every 60s";
+    if (document.getElementById("autoScan").checked) { runScan(); timer = setInterval(runScan, autoEvery()); }
     else clearInterval(timer);
   }
   refreshLive();

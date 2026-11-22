@@ -14,6 +14,8 @@ export default async (req) => {
   // How many candles back a UT Bot flip may be and still count as a signal (default: last 3).
   const lookback = Math.min(Math.max(parseInt(p.get("lookback"), 10) || 3, 1), 50);
   const inspect = p.get("inspect") === "1";
+  // Skip stocks whose average daily traded value is below this (₹ crore). 0 = no filter.
+  const minTurnover = Math.max(parseFloat(p.get("minTurnover")) || 0, 0);
   const symbols = (p.get("symbols") || "")
     .split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z0-9&\-]{1,20}$/.test(s))
     .slice(0, MAX_SYMBOLS);
@@ -39,7 +41,7 @@ export default async (req) => {
     try {
       const candles = await getCandles(symbol, interval, { confirmedOnly });
       const sig = evaluate(candles, { keyValue, atrPeriod, minConfirm, lookback, intraday: isIntraday(interval) });
-      if (sig) signals.push({ symbol, ...sig, quote: candles.quote });
+      if (sig && sig.turnoverCr >= minTurnover) signals.push({ symbol, ...sig, quote: candles.quote });
     } catch {
       failed.push(symbol);
     }
