@@ -44,6 +44,24 @@
     .lnk:hover { border-color: var(--accent); color: var(--accent); }
     .lnk.tv { background: #131722; }
     .lnk.kite { background: #3a1a12; color: #ff8a65; border-color: #5a2a1c; }
+    .newsbox { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+    .newsbox summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+    .newsbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; font-size: 12px; color: var(--muted); }
+    .newsbar label { display: flex; gap: 5px; align-items: center; }
+    .newslist { max-height: 520px; overflow-y: auto; }
+    .nitem { display: grid; grid-template-columns: 140px 1fr 150px; gap: 12px; padding: 10px 4px; border-top: 1px solid var(--line); font-size: 13px; }
+    .nitem a.hl { color: var(--text); text-decoration: none; font-weight: 600; }
+    .nitem a.hl:hover { color: var(--accent); }
+    .sent { font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 4px; display: inline-block; }
+    .sent.positive { background: var(--buy-bg); color: var(--buy); }
+    .sent.negative { background: var(--sell-bg); color: var(--sell); }
+    .sent.neutral { background: #1e2a44; color: var(--muted); }
+    .imp { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-left: 4px; }
+    .imp.high { color: #fbbf24; }
+    .newsbadge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; margin-top: 4px; display: inline-block; cursor: help; }
+    .newsbadge.agree { background: #0d2a1b; color: #86efac; border: 1px solid #1f6f46; }
+    .newsbadge.clash { background: #3a3315; color: #fde68a; border: 1px solid #5c4f1a; }
+    @media (max-width: 760px) { .nitem { grid-template-columns: 1fr; } }
     .chip.ok { border-color: #1f6f46; color: #86efac; background: #0d2a1b; }
     .empty { color: var(--muted); text-align: center; padding: 28px; }
     .note { margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -167,6 +185,23 @@
     </label>
     <div id="checkOut" class="sm">Uses the timeframe and UT Bot settings selected above.</div>
   </div>
+
+  <details class="newsbox" id="newsBox" ontoggle="if (this.open && !newsLoaded) loadNews()">
+    <summary>📰 News sentiment: stocks with positive or negative news <span class="sm" id="newsMeta"></span></summary>
+    <div class="newsbar">
+      <span class="tabs" style="margin:0">
+        <button class="on" data-ns="all">All</button>
+        <button data-ns="positive">Positive</button>
+        <button data-ns="negative">Negative</button>
+      </span>
+      <label><input type="checkbox" id="newsStocksOnly" checked onchange="renderNews()" /> Stocks only</label>
+      <label><input type="checkbox" id="newsHideLow" checked onchange="renderNews()" /> Hide low-impact &amp; routine filings</label>
+      <button onclick="loadNews(true)">Refresh news</button>
+    </div>
+    <div class="newslist" id="newsList"><div class="sm">Open this panel to load the latest news.</div></div>
+    <div class="sm" style="margin-top:8px;line-height:1.6">Headlines come from NSE corporate announcements, Economic Times, Business Standard, Livemint and Google News, and are refreshed about every 10 minutes. AI (Claude) rates each one as positive, negative or neutral for the stock and estimates how big the impact may be. It can misread a headline, so open the article before trading.
+    <b>"Moved today"</b> shows how much the price has already changed: news that is already priced in is not an early entry. The best setups are news plus a matching technical signal. Click <b>Check</b> to see the stock's UT Bot state, and look for the <span class="newsbadge agree">news agrees</span> badge in the scan results.</div>
+  </details>
 
   <div class="bar"><div id="progress"></div></div>
   <div class="meta" id="status">Pick a stock list and click "Scan Now".</div>
@@ -423,7 +458,7 @@
       ].join("");
       const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
-        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${chartLinks(s.symbol, currentTf)}</td>
+        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf)}</td>
         <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}</td>
         <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
           <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
@@ -444,6 +479,78 @@
 
   // Shows one stock's current UT Bot state, the date of its last flip and the setup,
   // whatever the signal-age / confirmation filters say.
+  // ---- News sentiment ----
+  let newsItems = [], newsLoaded = false, newsFilter = "all", newsQuotes = {};
+  document.querySelectorAll("[data-ns]").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("[data-ns]").forEach((x) => x.classList.toggle("on", x === b));
+    newsFilter = b.dataset.ns; renderNews();
+  });
+  const ago = (ms) => { const m = Math.round((Date.now() - ms) / 60000); return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  const CATS = { results: "Results", order_win: "Order win", deal_or_merger: "Deal / merger", dividend_buyback_bonus: "Dividend / buyback / bonus", rating_or_target: "Broker rating", management: "Management", regulatory_or_legal: "Regulatory / legal", fundraise_or_stake: "Fundraise / stake", product_or_expansion: "Expansion", macro_or_sector: "Sector / macro", routine_filing: "Routine filing", other: "Other" };
+  const newsFor = (sym) => newsItems.filter((n) => n.symbol === sym && n.sentiment !== "neutral" && n.impact !== "low");
+
+  async function loadNews(force) {
+    newsLoaded = true;
+    const list = document.getElementById("newsList");
+    list.innerHTML = `<div class="sm">Loading and rating the latest news… (up to 30 seconds)</div>`;
+    try {
+      const r = await (await fetch("/api/news")).json();
+      if (r.error) { list.innerHTML = `<div class="warn">${esc(r.error)}</div>`; newsLoaded = false; return; }
+      newsItems = r.news || [];
+      document.getElementById("newsMeta").textContent = `· ${newsItems.filter((n) => n.symbol && n.sentiment !== "neutral").length} stock stories · updated ${new Date(r.updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })} IST`;
+      renderNews();
+      if (lastSignals.length) render();
+      // Today's move for each stock in the news, to show what's already priced in.
+      const syms = [...new Set(newsItems.filter((n) => n.symbol).map((n) => n.symbol))].slice(0, 60);
+      if (syms.length) {
+        const q = await (await fetch(`/api/live?symbols=${encodeURIComponent(syms.join(","))}`)).json();
+        Object.entries(q.results || {}).forEach(([k, v]) => { if (v.quote) newsQuotes[k] = v.quote; });
+        renderNews();
+      }
+    } catch {
+      list.innerHTML = `<div class="warn">Couldn't load news. Try again in a minute.</div>`;
+      newsLoaded = false;
+    }
+  }
+
+  function renderNews() {
+    const stocksOnly = document.getElementById("newsStocksOnly").checked;
+    const hideLow = document.getElementById("newsHideLow").checked;
+    const rank = { high: 0, medium: 1, low: 2 };
+    const rows = newsItems
+      .filter((n) => (!stocksOnly || n.symbol) && (!hideLow || (n.impact !== "low" && n.category !== "routine_filing")))
+      .filter((n) => newsFilter === "all" ? n.sentiment !== "neutral" || !stocksOnly : n.sentiment === newsFilter)
+      .sort((a, b) => rank[a.impact] - rank[b.impact] || (b.time || 0) - (a.time || 0));
+    const list = document.getElementById("newsList");
+    if (!rows.length) { list.innerHTML = `<div class="sm">No matching news right now. Untick the filters to see more.</div>`; return; }
+    list.innerHTML = rows.map((n) => {
+      const q = n.symbol && newsQuotes[n.symbol];
+      return `<div class="nitem">
+        <div>${n.symbol ? `<strong>${esc(n.symbol)}</strong>` : `<span class="sm">${esc(n.company || "Market")}</span>`}
+          <div><span class="sent ${n.sentiment}">${n.sentiment.toUpperCase()}</span><span class="imp ${n.impact}">${esc(n.impact)} impact</span></div>
+          ${n.symbol ? `<div class="links"><a class="lnk" href="#" onclick="document.getElementById('checkSym').value='${esc(n.symbol)}';checkStock();document.getElementById('checkSym').scrollIntoView({behavior:'smooth',block:'center'});return false;">Check</a></div>${chartLinks(n.symbol, document.getElementById("interval").value)}` : ""}
+        </div>
+        <div><a class="hl" href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
+          <div class="sm" style="margin-top:3px">${esc(n.reason)}</div>
+          <div class="sm">${esc(CATS[n.category] || n.category)} · ${esc(n.source)}${n.time ? ` · ${ago(n.time)}` : ""}</div></div>
+        <div class="num">${q ? `<span class="ltp">₹${fmt(q.ltp)}</span><div class="sm">Moved today: <span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "+" : ""}${fmt(q.changePct)}%</span></div>` : n.symbol ? `<span class="sm">…</span>` : ""}</div>
+      </div>`;
+    }).join("");
+  }
+
+  // Badge on scan rows when today's news points the same way as the signal (or the opposite way).
+  function newsBadge(s) {
+    const items = newsFor(s.symbol);
+    if (!items.length) return "";
+    const want = s.side === "BUY" ? "positive" : "negative";
+    const agree = items.filter((n) => n.sentiment === want);
+    const n = agree[0] || items[0];
+    const tip = esc(`${n.sentiment.toUpperCase()} (${n.impact}): ${n.title}`);
+    return agree.length
+      ? `<div><span class="newsbadge agree" title="${tip}">📰 news agrees</span></div>`
+      : `<div><span class="newsbadge clash" title="${tip}">📰 news against signal</span></div>`;
+  }
+
   async function checkStock() {
     const sym = document.getElementById("checkSym").value.trim().toUpperCase().replace(/\.NS$/, "");
     const out = document.getElementById("checkOut");
