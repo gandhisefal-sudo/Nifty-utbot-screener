@@ -10,7 +10,7 @@ export default async (req) => {
   const keyValue = Math.min(Math.max(parseFloat(p.get("keyValue")) || 1, 0.1), 10);
   const atrPeriod = Math.min(Math.max(parseInt(p.get("atrPeriod"), 10) || 10, 1), 100);
   const mc = parseInt(p.get("minConfirm"), 10);
-  const minConfirm = Number.isNaN(mc) ? 5 : Math.min(Math.max(mc, 0), 6);
+  const minConfirm = Number.isNaN(mc) ? 6 : Math.min(Math.max(mc, 0), 8);
   const symbols = (p.get("symbols") || "")
     .split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z0-9&\-]{1,20}$/.test(s))
     .slice(0, MAX_SYMBOLS);
@@ -23,7 +23,7 @@ export default async (req) => {
     try {
       const candles = await getCandles(symbol, interval, { confirmedOnly });
       const sig = evaluate(candles, { keyValue, atrPeriod, minConfirm, intraday: isIntraday(interval) });
-      if (sig) signals.push({ symbol, ...sig });
+      if (sig) signals.push({ symbol, ...sig, quote: candles.quote });
     } catch {
       failed.push(symbol);
     }

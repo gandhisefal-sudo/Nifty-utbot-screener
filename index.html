@@ -43,12 +43,34 @@
     .empty { color: var(--muted); text-align: center; padding: 28px; }
     .note { margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
     .note b { color: var(--text); }
+    .row2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .row2 .tabs { margin: 0; }
+    .row2 label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+    .pill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); }
+    .pill.open { color: var(--buy); border-color: #1f6f46; }
+    .pill.open::before { content: "● "; animation: blink 1.4s infinite; }
+    @keyframes blink { 50% { opacity: .2; } }
+    .up { color: var(--buy); } .down { color: var(--sell); }
+    .ltp { font-weight: 800; font-size: 15px; }
+    .flash { animation: flash .8s; }
+    @keyframes flash { from { background: rgba(56,189,248,.25); } to { background: transparent; } }
+    .sm { font-size: 11px; color: var(--muted); }
+    .meter { width: 70px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+    .meter > i { display: block; height: 100%; }
+    .st { font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 4px; display: inline-block; }
+    .st-OPEN { background: #1e2a44; color: var(--accent); }
+    .st-T1 { background: var(--buy-bg); color: #86efac; }
+    .st-T2 { background: #166534; color: #dcfce7; }
+    .st-SL { background: var(--sell-bg); color: var(--sell); }
+    .st-BE { background: #3a3315; color: #fde68a; }
+    .note table { width: auto; background: transparent; font-size: 12px; margin: 6px 0; }
+    .note td, .note th { padding: 4px 10px; position: static; }
   </style>
 </head>
 <body>
 <div class="wrap">
   <h1>NSE Intraday Signal Scanner</h1>
-  <div class="sub">The stock list comes from NSE's official index files. Each stock is checked for a fresh UT Bot buy/sell flip, confirmed by Supertrend, VWAP, EMA 9/21, RSI, MACD and volume.</div>
+  <div class="sub">The stock list comes from NSE's official index files. Each stock is checked for a fresh UT Bot buy/sell flip, confirmed by trend (Supertrend, VWAP, EMA 9/21), momentum (RSI, MACD, ADX, ROC) and volume. Prices and trade status refresh live during market hours.</div>
 
   <div class="controls">
     <label>Stocks (from NSE)
@@ -87,9 +109,10 @@
     <label>UT ATR Period <input type="number" id="atrPeriod" value="10" min="1" /></label>
     <label>Min confirmations
       <select id="minConfirm">
-        <option value="4">4 of 6</option>
-        <option value="5" selected>5 of 6</option>
-        <option value="6">6 of 6 (strictest)</option>
+        <option value="5">5 of 8</option>
+        <option value="6" selected>6 of 8</option>
+        <option value="7">7 of 8</option>
+        <option value="8">8 of 8 (strictest)</option>
       </select>
     </label>
     <button class="primary" id="scanBtn" onclick="runScan()">Scan Now</button>
@@ -102,21 +125,33 @@
   <div class="bar"><div id="progress"></div></div>
   <div class="meta" id="status">Pick a stock list and click "Scan Now".</div>
 
-  <div class="tabs">
-    <button class="on" data-side="ALL">All</button>
-    <button data-side="BUY">Buy only</button>
-    <button data-side="SELL">Sell only</button>
+  <div class="row2">
+    <div class="tabs">
+      <button class="on" data-side="ALL">All</button>
+      <button data-side="BUY">Buy only</button>
+      <button data-side="SELL">Sell only</button>
+    </div>
+    <label>Sort by
+      <select id="sortBy" onchange="render()">
+        <option value="score">Confirmations</option>
+        <option value="momentum">Momentum</option>
+        <option value="rvol">Relative volume</option>
+        <option value="pnl">Live P&amp;L</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="hideExtended" onchange="render()" /> Hide extended (chasing) setups</label>
+    <span><span class="pill" id="marketPill">Market closed</span> <span class="sm" id="liveInfo"></span></span>
   </div>
 
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th>Stock</th><th>Signal</th><th>Score</th><th>Entry ₹</th><th>Stop Loss ₹</th>
-          <th>Target 1 ₹</th><th>Target 2 ₹</th><th>Risk</th><th>RSI</th><th>Confirmations</th><th>Signal Time</th>
+          <th>Stock</th><th>Signal</th><th>Live Price ₹</th><th>Score</th><th>Entry Zone ₹</th><th>Stop Loss ₹</th>
+          <th>Target 1 ₹</th><th>Target 2 ₹</th><th>Volume</th><th>Momentum</th><th>Live Status</th><th>Confirmations</th><th>Signal Time</th>
         </tr>
       </thead>
-      <tbody id="results"><tr><td colspan="11" class="empty">No scan yet.</td></tr></tbody>
+      <tbody id="results"><tr><td colspan="13" class="empty">No scan yet.</td></tr></tbody>
     </table>
   </div>
 
@@ -129,15 +164,41 @@
   </div>
 
   <div class="note">
-    <b>How signals work:</b> A <b>BUY</b> means the UT Bot flipped bullish within the last 3 candles of today's session, and at least the chosen number of these agree: Supertrend (10,3) is up, price is above VWAP, EMA 9 is above EMA 21, RSI(14) is between 50 and 75, the MACD histogram is positive, and volume is at least 1.2× its 20-candle average. A <b>SELL</b> (short) is the mirror image.
-    <b>Stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. <b>Target 1</b> is 1.5× the risk and <b>Target 2</b> is 3× the risk. Exit early if price closes back through the UT Bot stop. Square off all positions before 3:15 pm IST.<br />
+    <b>How signals work:</b> A <b>BUY</b> means the UT Bot flipped bullish within the last 3 candles of today's session, and enough of these 8 checks agree.
+    <b>Trend:</b> Supertrend (10,3) is up, price is above VWAP, and EMA 9 is above EMA 21.
+    <b>Momentum:</b> RSI(14) is between 50 and 75, the MACD histogram is positive, ADX(14) is at least 20 with +DI above −DI, and the 10-candle rate of change is positive with MACD still rising.
+    <b>Volume:</b> the signal candle has at least 1.2× its 20-candle average volume, and today's volume is running at least level with a normal day at this time.
+    A <b>SELL</b> (short) is the mirror image.<br />
+    <b>Volume column:</b> <b>RVOL</b> is today's volume so far compared with the average of the last 10 sessions at the same time of day (2× means twice as busy as usual). <b>Pressure</b> is the share of the last 20 candles' volume that traded on candles moving in the signal's direction.<br />
+    <b>Momentum score (0–100)</b> blends ADX trend strength, RSI, the +DI/−DI spread and relative volume. <b>Extended</b> means price is more than 1.5×ATR from EMA 9, so you'd be chasing. Wait for a pullback into the entry zone. <b>Fading</b> means RSI is overstretched or the MACD histogram has weakened for 2 candles.<br />
+    <b>Entry &amp; exit plan:</b> buy within the <b>entry zone</b> (signal close back toward EMA 9). The <b>stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. At <b>Target 1</b> (1.5× risk), book half and move the stop to your entry price. Let the rest run to <b>Target 2</b> (3× risk). Square off anything still open by 3:15 pm.
+    <b>Live Status</b> follows each setup minute by minute on today's 1-minute candles: OPEN, T1 HIT, T2 HIT, SL HIT, or "exit at cost" after T1. If a minute touches both the stop and a target, the stop is assumed to have hit first.<br />
     <b>Disclaimer:</b> No indicator gives "exact" signals. These are rule-based setups, not investment advice. Prices come from Yahoo Finance and can be delayed by a few minutes. Always confirm on your broker's chart and size positions to your risk.
+  </div>
+
+  <div class="note">
+    <b>How this strategy did recently (replay test, Nifty 100, about 20 sessions to 20 Nov 2026, default 6-of-8 rule, entries 9:30–2:45, plan above, before brokerage/taxes):</b>
+    <table>
+      <tr><th>Timeframe</th><th>Trades</th><th>Winners</th><th>Avg result per trade</th></tr>
+      <tr><td>5 min</td><td>722</td><td>40%</td><td>−0.03R (about breakeven)</td></tr>
+      <tr><td>15 min</td><td>855</td><td>48%</td><td>+0.13R</td></tr>
+      <tr><td>"Extended" setups only</td><td>76 / 89</td><td>37% / 43%</td><td>−0.10R / −0.05R</td></tr>
+    </table>
+    R = the amount risked per trade (entry to stop loss). Brokerage, STT and slippage typically cost around 0.1–0.3R per intraday trade, so these results are roughly breakeven after costs. Higher scores did not reliably do better in this sample. Treat the scanner as a shortlist of candidates, not a money machine. Skipping extended setups and favouring the 15-minute timeframe helped the most.
   </div>
 </div>
 
 <script>
   const BATCH = 50, CONCURRENCY = 4;
-  let currentTf = "5m", timer = null, scanning = false, lastSignals = [], seen = new Set(), sideFilter = "ALL", names = {};
+  const LIVE_EVERY = 15000;
+  let currentTf = "5m", timer = null, liveTimer = null, scanning = false, lastSignals = [], seen = new Set(), sideFilter = "ALL", names = {}, live = {}, liveAt = null;
+  const INTRADAY = (tf) => !["1d", "1wk"].includes(tf);
+
+  function marketOpen(d = new Date()) {
+    const ist = new Date(d.getTime() + 19800000);
+    const day = ist.getUTCDay(), min = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+    return day >= 1 && day <= 5 && min >= 555 && min < 930;
+  }
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n) => n == null ? "—" : Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -200,6 +261,7 @@
       if (seen.size && fresh.length) beep();
       signals.forEach((s) => seen.add(keyOf(s)));
       lastSignals = signals;
+      live = {};
 
       const buys = signals.filter((s) => s.side === "BUY").length;
       const lastBar = signals[0]?.lastTime;
@@ -210,6 +272,7 @@
         updatedAt ? `<span>Updated ${new Date(updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST</span>` : "",
       ].join("");
       render();
+      refreshLive();
     } catch (err) {
       statusEl.textContent = "Scan failed. Please try again in a moment.";
     } finally {
@@ -217,27 +280,95 @@
     }
   }
 
-  function render() {
-    const rows = lastSignals.filter((s) => sideFilter === "ALL" || s.side === sideFilter);
+  // Live price + trade status for every setup on screen (batches of 50).
+  async function refreshLive() {
+    clearTimeout(liveTimer);
+    const open = marketOpen();
+    const pill = document.getElementById("marketPill");
+    pill.textContent = open ? "Market live" : "Market closed";
+    pill.classList.toggle("open", open);
+    if (lastSignals.length) {
+      const items = lastSignals.map((s) => INTRADAY(currentTf)
+        ? { trade: [s.symbol, s.side, s.entry, s.stopLoss, s.target1, s.target2, s.entryTime].join(",") }
+        : { symbol: s.symbol });
+      const calls = [];
+      for (let i = 0; i < items.length; i += 50) {
+        const chunk = items.slice(i, i + 50);
+        const q = new URLSearchParams();
+        const tr = chunk.filter((x) => x.trade).map((x) => x.trade);
+        const sy = chunk.filter((x) => x.symbol).map((x) => x.symbol);
+        if (tr.length) q.set("trades", tr.join(";"));
+        if (sy.length) q.set("symbols", sy.join(","));
+        calls.push(fetch(`/api/live?${q}`).then((r) => r.json()).then((r) => Object.assign(live, r.results || {})).catch(() => {}));
+      }
+      const prev = Object.fromEntries(Object.entries(live).map(([k, v]) => [k, v.quote?.ltp]));
+      await Promise.all(calls);
+      liveAt = new Date();
+      render(prev);
+      document.getElementById("liveInfo").textContent = `Prices updated ${liveAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST${open ? ` · refreshing every ${LIVE_EVERY / 1000}s` : ""}`;
+    }
+    if (open) liveTimer = setTimeout(refreshLive, LIVE_EVERY);
+  }
+
+  const pnlOf = (s) => {
+    const ltp = live[s.symbol]?.quote?.ltp;
+    if (ltp == null) return null;
+    return ((s.side === "BUY" ? ltp - s.entry : s.entry - ltp) / s.entry) * 100;
+  };
+
+  function statusCell(s) {
+    const L = live[s.symbol];
+    if (!L) return `<span class="sm">loading…</span>`;
+    if (L.error) return `<span class="sm">no data</span>`;
+    if (!L.status) return `<span class="sm">—</span>`;
+    const cls = L.status.startsWith("T2") ? "T2" : L.status.includes("COST") ? "BE" : L.status.startsWith("T1") ? "T1" : L.status.startsWith("SL") ? "SL" : "OPEN";
+    const when = L.statusTime ? `<div class="sm">at ${ist(L.statusTime)}</div>` : "";
+    const lateNote = L.status === "OPEN" || L.status === "T1 HIT" ? (minutesIst() >= 915 ? `<div class="warn">square off now</div>` : "") : "";
+    return `<span class="st st-${cls}">${esc(L.status)}</span>${when}${lateNote}<div class="sm">best move ${L.bestMovePct >= 0 ? "+" : ""}${fmt(L.bestMovePct)}%</div>`;
+  }
+  function minutesIst() { const d = new Date(Date.now() + 19800000); return marketOpen() ? d.getUTCHours() * 60 + d.getUTCMinutes() : 0; }
+
+  function render(prevLtp = {}) {
+    const sortBy = document.getElementById("sortBy").value;
+    const hideExt = document.getElementById("hideExtended").checked;
+    const rows = lastSignals
+      .filter((s) => (sideFilter === "ALL" || s.side === sideFilter) && !(hideExt && s.extended))
+      .sort((a, b) => sortBy === "momentum" ? b.momentum - a.momentum
+        : sortBy === "rvol" ? (b.rvol ?? 0) - (a.rvol ?? 0)
+        : sortBy === "pnl" ? (pnlOf(b) ?? -1e9) - (pnlOf(a) ?? -1e9)
+        : b.score - a.score || b.momentum - a.momentum);
     const tbody = document.getElementById("results");
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="11" class="empty">No ${sideFilter === "ALL" ? "" : sideFilter + " "}signals match right now. Try a lower confirmation level or a different timeframe.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="13" class="empty">No ${sideFilter === "ALL" ? "" : sideFilter + " "}signals match right now. Try a lower confirmation level or a different timeframe.</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map((s) => {
       const info = names[s.symbol] || {};
+      const q = live[s.symbol]?.quote || s.quote || {};
+      const pnl = pnlOf(s);
+      const changed = prevLtp[s.symbol] != null && prevLtp[s.symbol] !== q.ltp;
+      const momColor = s.momentum >= 65 ? "var(--buy)" : s.momentum >= 40 ? "#fbbf24" : "var(--sell)";
+      const flags = [
+        s.extended ? `<div class="warn" title="Price is more than 1.5×ATR away from EMA 9. Wait for a pullback into the entry zone.">⚠ extended</div>` : "",
+        s.fading ? `<div class="warn" title="RSI overstretched or MACD histogram weakening for 2 candles.">⚠ momentum fading</div>` : "",
+      ].join("");
+      const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
         <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div></td>
         <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}</td>
-        <td class="score">${s.score}/6</td>
-        <td class="num"><b>${fmt(s.entry)}</b></td>
-        <td class="num sl">${fmt(s.stopLoss)}</td>
-        <td class="num tg">${fmt(s.target1)}</td>
+        <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
+          <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
+          ${pnl != null ? `<div class="sm">vs entry: <span class="${pnl >= 0 ? "up" : "down"}">${pnl >= 0 ? "+" : ""}${fmt(pnl)}%</span></div>` : ""}</td>
+        <td class="score">${s.score}/${s.maxScore}</td>
+        <td class="num"><b>${fmt(s.entryZone[0])}</b> – <b>${fmt(s.entryZone[1])}</b><div class="sm">signal close ${fmt(s.entry)}</div>${flags}</td>
+        <td class="num sl">${fmt(s.stopLoss)}<div class="sm">risk ${s.riskPct}%</div></td>
+        <td class="num tg">${fmt(s.target1)}<div class="sm">book 50%</div></td>
         <td class="num tg">${fmt(s.target2)}</td>
-        <td class="num">${s.riskPct}%</td>
-        <td class="num">${fmt(s.rsi)}</td>
+        <td class="num">${s.rvol != null ? `RVOL <b>${fmt(s.rvol)}×</b>` : ""}<div class="sm">spike ${fmt(s.volumeRatio)}× · pressure ${Math.round(s.volPressure ?? 0)}%</div><div class="sm">day vol ${q.dayVolume ? Number(q.dayVolume).toLocaleString("en-IN") : "—"}</div></td>
+        <td><span class="meter"><i style="width:${s.momentum}%;background:${momColor}"></i></span><b>${s.momentum}</b><div class="sm">ADX ${fmt(s.adx)} · RSI ${fmt(s.rsi)} · ROC ${s.roc >= 0 ? "+" : ""}${fmt(s.roc)}%</div></td>
+        <td>${statusCell(s)}</td>
         <td><div class="chips">${s.checks.map((c) => `<span class="chip ${c.ok ? "ok" : ""}">${esc(c.name)}</span>`).join("")}</div></td>
-        <td>${["1d", "1wk"].includes(currentTf) ? new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" }) : ist(s.signalTime, true)}${s.openingCandle ? `<div class="warn" title="Signal came from a candle that started before 9:30 IST. Opening gaps and volatility make these less reliable.">⚠ opening candle</div>` : ""}</td>
+        <td>${time}${s.openingCandle ? `<div class="warn" title="Signal came from a candle that started before 9:30 IST. Opening gaps and volatility make these less reliable.">⚠ opening candle</div>` : ""}</td>
       </tr>`;
     }).join("");
   }
@@ -246,6 +377,7 @@
     if (document.getElementById("autoScan").checked) { runScan(); timer = setInterval(runScan, 60000); }
     else clearInterval(timer);
   }
+  refreshLive();
 </script>
 </body>
 </html>
