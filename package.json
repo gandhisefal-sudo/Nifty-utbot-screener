@@ -1,0 +1,9 @@
+{
+  "name": "nse-intraday-scanner",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
+    "zod": "^4.1.0"
+  }
+}
