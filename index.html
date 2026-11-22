@@ -39,6 +39,11 @@
     .score { font-weight: 700; }
     .chips { display: flex; gap: 4px; }
     .chip { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
+    .links { display: flex; gap: 4px; margin-top: 5px; }
+    .lnk { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; text-decoration: none; border: 1px solid var(--line); color: var(--text); }
+    .lnk:hover { border-color: var(--accent); color: var(--accent); }
+    .lnk.tv { background: #131722; }
+    .lnk.kite { background: #3a1a12; color: #ff8a65; border-color: #5a2a1c; }
     .chip.ok { border-color: #1f6f46; color: #86efac; background: #0d2a1b; }
     .empty { color: var(--muted); text-align: center; padding: 28px; }
     .note { margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -262,6 +267,21 @@
     } catch {}
   }
 
+  // ---- Chart links ----
+  // TradingView: NSE:SYMBOL with & and - replaced by _ (e.g. M&M -> M_M), on the scanned timeframe.
+  const TV_INTERVAL = { "1m": "1", "2m": "2", "3m": "3", "5m": "5", "10m": "10", "15m": "15", "30m": "30", "45m": "45", "1h": "60", "75m": "75", "2h": "120", "4h": "240", "1d": "D", "1wk": "W" };
+  const tvUrl = (sym, tf) => `https://www.tradingview.com/chart/?symbol=${encodeURIComponent("NSE:" + sym.replace(/[&-]/g, "_"))}&interval=${TV_INTERVAL[tf] || "D"}`;
+  // Kite chart links need Zerodha's instrument token, loaded once from /api/kite-tokens.
+  let kiteTokens = {};
+  fetch("/api/kite-tokens").then((r) => r.json()).then((r) => { kiteTokens = r.tokens || {}; if (lastSignals.length) render(); }).catch(() => {});
+  const kiteUrl = (sym) => kiteTokens[sym]
+    ? `https://kite.zerodha.com/chart/ext/tvc/NSE/${encodeURIComponent(sym)}/${kiteTokens[sym]}`
+    : "https://kite.zerodha.com/";
+  const chartLinks = (sym, tf) => `<div class="links">
+      <a class="lnk tv" href="${tvUrl(sym, tf)}" target="_blank" rel="noopener" title="Open ${esc(sym)} on TradingView (${esc(tf)})">TradingView ↗</a>
+      <a class="lnk kite" href="${kiteUrl(sym)}" target="_blank" rel="noopener" title="${kiteTokens[sym] ? `Open ${esc(sym)} chart in Zerodha Kite (log in to Kite first)` : "Kite chart link not available yet; opens Kite"}">Kite ↗</a>
+    </div>`;
+
   async function runScan() {
     if (scanning) return;
     scanning = true;
@@ -403,7 +423,7 @@
       ].join("");
       const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
-        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div></td>
+        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${chartLinks(s.symbol, currentTf)}</td>
         <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}</td>
         <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
           <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
@@ -453,7 +473,7 @@
       if (st && st.score < minC) reasons.push(`only ${st.score} of 8 confirmations pass now (you require ${minC})`);
       const listed = reasons.length === 0;
       out.innerHTML = `
-        <b>${esc(sym)}</b> on <b>${esc(tf)}</b>: UT Bot is in <span class="badge ${x.side}">${x.side}</span> mode since <b>${when(x.lastFlipTime)}</b> (${x.barsSinceFlip} candle${x.barsSinceFlip === 1 ? "" : "s"} ago).
+        <b>${esc(sym)}</b> on <b>${esc(tf)}</b>: UT Bot is in <span class="badge ${x.side}">${x.side}</span> mode since <b>${when(x.lastFlipTime)}</b> (${x.barsSinceFlip} candle${x.barsSinceFlip === 1 ? "" : "s"} ago). ${chartLinks(sym, tf).replace('class="links"', 'class="links" style="display:inline-flex;margin:0 0 0 6px"')}
         Last close ₹${fmt(x.close)}, UT trailing stop ₹${fmt(x.trailingStop)}.
         ${st ? `Confirmations now: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
         ${listed ? `<span class="up">This stock appears in the scan with your current settings.</span>`
