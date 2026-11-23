@@ -62,6 +62,18 @@
     .newsbadge.agree { background: #0d2a1b; color: #86efac; border: 1px solid #1f6f46; }
     .newsbadge.clash { background: #3a3315; color: #fde68a; border: 1px solid #5c4f1a; }
     @media (max-width: 760px) { .nitem { grid-template-columns: 1fr; } }
+    .radar { border-color: #2b4a6b; }
+    .radar .table-wrap { max-height: 560px; overflow-y: auto; }
+    .radar table { font-size: 13px; }
+    .radar td, .radar th { padding: 7px 10px; }
+    .rtag { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); margin: 0 4px 3px 0; display: inline-block; cursor: help; white-space: nowrap; }
+    .rtag.spike, .rtag.breakout, .rtag.delivery, .rtag.deal, .rtag.buildup { border-color: #1f6f46; color: #86efac; background: #0d2a1b; }
+    .rtag.near { border-color: #2b4a6b; color: #7dd3fc; background: #0c2133; }
+    .rtag.distribution, .rtag.dealsell { border-color: #6b1f2e; color: #fda4af; background: #2a0d14; }
+    .bias { font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .bias.bullish { color: var(--buy); } .bias.bearish { color: var(--sell); } .bias.mixed { color: #fbbf24; }
+    .callout { background: #0c2133; border: 1px solid #2b4a6b; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); margin: 8px 0; }
+    .callout b { color: var(--text); }
     .chip.ok { border-color: #1f6f46; color: #86efac; background: #0d2a1b; }
     .empty { color: var(--muted); text-align: center; padding: 28px; }
     .note { margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -99,7 +111,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>NSE Intraday Signal Scanner</h1>
+  <h1>NSE Intraday Signal Scanner <a href="/trading-playbook.pdf" target="_blank" rel="noopener" class="lnk" style="font-size:12px;vertical-align:middle;margin-left:8px" title="Step-by-step guide: daily routine, settings, position sizing, exits, traps and a printable checklist">📘 Trading playbook (PDF)</a></h1>
   <div class="sub">The stock list comes from NSE's official files: Nifty indices or every NSE stock in the EQ series. Each stock is checked for a fresh UT Bot buy/sell flip, confirmed by trend (Supertrend, VWAP, EMA 9/21), momentum (RSI, MACD, ADX, ROC) and volume. Prices and trade status refresh live during market hours.</div>
 
   <div class="controls">
@@ -114,6 +126,9 @@
         <optgroup label="Beyond Nifty">
           <option value="nonNifty">Non-Nifty stocks (~1,900)</option>
           <option value="allEq">All NSE stocks (~2,400)</option>
+        </optgroup>
+        <optgroup label="From the Radar panel">
+          <option value="radar">🔭 Radar watchlist + live volume shocks</option>
         </optgroup>
       </select>
     </label>
@@ -153,7 +168,7 @@
     <label>UT Key Value <input type="number" id="keyValue" value="1" step="0.5" min="0.5" /></label>
     <label>UT ATR Period <input type="number" id="atrPeriod" value="10" min="1" /></label>
     <label>Min confirmations
-      <select id="minConfirm">
+      <select id="minConfirm" onchange="rescanIfShown()">
         <option value="5">5 of 8</option>
         <option value="6" selected>6 of 8</option>
         <option value="7">7 of 8</option>
@@ -161,13 +176,14 @@
       </select>
     </label>
     <label title="How old a UT Bot buy/sell flip can be and still be listed. TradingView keeps showing old signals on the chart; this scanner lists fresh ones by default.">Signal age
-      <select id="lookback">
+      <select id="lookback" onchange="rescanIfShown()">
         <option value="1">Last candle only</option>
         <option value="3" selected>Last 3 candles (fresh)</option>
         <option value="5">Last 5 candles</option>
         <option value="10">Last 10 candles</option>
         <option value="20">Last 20 candles</option>
       </select>
+      <span class="sm" title="Intraday timeframes only list signals from today's session, so early in the day there may be fewer candles than the setting.">intraday: today's candles only</span>
     </label>
     <button class="primary" id="scanBtn" onclick="runScan()">Scan Now</button>
     <div class="toggles">
@@ -185,6 +201,30 @@
     </label>
     <div id="checkOut" class="sm">Uses the timeframe and UT Bot settings selected above.</div>
   </div>
+
+  <details class="newsbox radar" id="radarBox" open ontoggle="if (this.open && !radarLoaded) loadRadar()">
+    <summary>🔭 Radar: stocks to watch before and right after the open <span class="sm" id="radarMeta"></span></summary>
+    <div class="callout"><b>Can you know in advance what FIIs, DIIs or mutual funds will buy?</b> No. Their orders aren't public before they trade, and anyone claiming to know them is guessing or breaking the law.
+      What you <i>can</i> see is the trail big money leaves: <b>unusual volume</b>, <b>high delivery</b> (shares actually taken home, not day-traded), <b>tight ranges near a breakout</b>, and <b>disclosed bulk and block deals</b>. The fastest warning for a move like ITI's comes in the first minutes after 9:15. Keep <b>⚡ Live volume shocks</b> open with alerts on.</div>
+    <div class="newsbar">
+      <span class="tabs" style="margin:0" id="radarTabs">
+        <button class="on" data-rt="watch">📋 Watchlist for today</button>
+        <button data-rt="live">⚡ Live volume shocks</button>
+        <button data-rt="deals">🤝 Bulk &amp; block deals</button>
+        <button data-rt="fii">🏛 FII / DII positioning</button>
+      </span>
+      <label>Min liquidity
+        <select id="radarTurnover" onchange="loadRadar(true); if (radarTab === 'live') loadShocks()">
+          <option value="0.5">₹0.5 Cr+</option>
+          <option value="1" selected>₹1 Cr+</option>
+          <option value="5">₹5 Cr+</option>
+          <option value="25">₹25 Cr+</option>
+        </select>
+      </label>
+      <span id="radarControls"></span>
+    </div>
+    <div id="radarOut"><div class="sm">Open this panel to load the radar.</div></div>
+  </details>
 
   <details class="newsbox" id="newsBox" ontoggle="if (this.open && !newsLoaded) loadNews()">
     <summary>📰 News sentiment: stocks with positive or negative news <span class="sm" id="newsMeta"></span></summary>
@@ -221,6 +261,9 @@
       </select>
     </label>
     <label><input type="checkbox" id="hideExtended" onchange="render()" /> Hide extended (chasing) setups</label>
+    <label title="Only list signals where the UT Bot AND Supertrend on the next higher timeframe point the same way (e.g. 15m for a 5m signal, 1 week for a daily one)."><input type="checkbox" id="htfOnly" onchange="render()" /> Higher timeframe agrees</label>
+    <label title="Only list signals where price broke the 20-candle high (low for shorts), pulled back to that level and held it. Use Signal age 10+ candles, since a retest takes time."><input type="checkbox" id="retestOnly" onchange="render()" /> Breakout retest held</label>
+    <label title="Hide signals with a trap warning: false breakout, entry right after a spike, rejection wick, or a stop loss sitting where stop hunts happen."><input type="checkbox" id="hideTraps" onchange="render()" /> Hide trap warnings</label>
     <span><span class="pill" id="marketPill">Market closed</span> <span class="sm" id="liveInfo"></span></span>
   </div>
 
@@ -254,7 +297,9 @@
     A <b>SELL</b> (short) is the mirror image.<br />
     <b>Volume column:</b> <b>RVOL</b> is today's volume so far compared with the average of the last 10 sessions at the same time of day (2× means twice as busy as usual). <b>Pressure</b> is the share of the last 20 candles' volume that traded on candles moving in the signal's direction.<br />
     <b>Momentum score (0–100)</b> blends ADX trend strength, RSI, the +DI/−DI spread and relative volume. <b>Extended</b> means price is more than 1.5×ATR from EMA 9, so you'd be chasing. Wait for a pullback into the entry zone. <b>Fading</b> means RSI is overstretched or the MACD histogram has weakened for 2 candles.<br />
-    <b>Entry &amp; exit plan:</b> buy within the <b>entry zone</b> (signal close back toward EMA 9). The <b>stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. At <b>Target 1</b> (1.5× risk), book half and move the stop to your entry price. Let the rest run to <b>Target 2</b> (3× risk). Square off anything still open by 3:15 pm.
+    <b>Entry &amp; exit plan:</b> buy within the <b>entry zone</b> (signal close back toward EMA 9). The <b>stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. At <b>Target 1</b> (1.5× risk), book half and move the stop to your entry price. Let the rest run to <b>Target 2</b> (3× risk).
+    The entry, stop and targets always come from the <b>signal candle</b>, so a signal from 5 candles ago keeps its original plan. <b>Trap filters:</b> each signal shows whether the <b>higher timeframe</b> agrees (UT Bot and Supertrend on e.g. 15m for a 5m signal, or 1 week for daily), the <b>breakout retest</b> state (price broke the 20-candle high/low, came back to it and held: the classic professional entry), and <b>trap warnings</b>. The warnings cover a <b>false breakout</b>, an entry <b>after a spike</b>, a <b>rejection wick</b>, and <b>stop-hunt risk</b> (the stop sits just inside the previous day's low/high, a swing level or a round number, where stops cluster). An ⓘ note marks a resistance level before Target 1. Hover any badge for details, and use the three checkboxes above the table to filter.
+    <b>How long will it take?</b> Under each target, "usually ~N candles" is how long that target typically took on this stock's own past UT Bot signals on the same timeframe, with how often it was hit. On intraday timeframes, targets are meant for the same session. On 1 day the estimate is in trading days, and on 1 week in weeks. Square off anything still open by 3:15 pm.
     <b>Live Status</b> follows each setup minute by minute on today's 1-minute candles: OPEN, T1 HIT, T2 HIT, SL HIT, or "exit at cost" after T1. If a minute touches both the stop and a target, the stop is assumed to have hit first.<br />
     <b>Disclaimer:</b> No indicator gives "exact" signals. These are rule-based setups, not investment advice. Prices come from Yahoo Finance and can be delayed by a few minutes. Always confirm on your broker's chart and size positions to your risk.
   </div>
@@ -336,7 +381,7 @@
 
     try {
       statusEl.textContent = "Loading the stock list from NSE...";
-      const uni = await (await fetch(`/api/universe?index=${index}`)).json();
+      const uni = index === "radar" ? await radarUniverse() : await (await fetch(`/api/universe?index=${index}`)).json();
       uni.stocks.forEach((s) => names[s.symbol] = s);
       const symbols = uni.stocks.map((s) => s.symbol);
       const batches = [];
@@ -363,6 +408,7 @@
       if (seen.size && fresh.length) beep();
       signals.forEach((s) => seen.add(keyOf(s)));
       lastSignals = signals;
+      scannedOnce = true;
       live = {};
 
       const buys = signals.filter((s) => s.side === "BUY").length;
@@ -420,8 +466,50 @@
     return ((s.side === "BUY" ? ltp - s.entry : s.entry - ltp) / s.entry) * 100;
   };
 
+  // Changing Signal age / Min confirmations re-runs the scan so the table matches the setting.
+  let scannedOnce = false;
+  function rescanIfShown() { if (scannedOnce && !scanning) runScan(); }
+
+  // Rough clock time for N candles of the scanned timeframe.
+  const TF_MIN = { "1m": 1, "2m": 2, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "45m": 45, "1h": 60, "75m": 75, "2h": 120, "4h": 240 };
+  function candleSpan(n, tf) {
+    if (n == null) return "";
+    if (tf === "1wk") return `${n} week${n === 1 ? "" : "s"}`;
+    if (tf === "1d") return `${n} trading day${n === 1 ? "" : "s"}`;
+    const mins = n * (TF_MIN[tf] || 5);
+    return `${n} candle${n === 1 ? "" : "s"} (≈ ${mins < 60 ? mins + " min" : (mins / 60).toFixed(mins % 60 ? 1 : 0) + " hr"})`;
+  }
+  // "Usually reached in …" line under a target, from this stock's own past signals.
+  function timingNote(s, which, tf) {
+    const tm = s.timing;
+    if (!tm || tm.trades < 3) return `<div class="sm">not enough history</div>`;
+    const n = which === 1 ? tm.t1MedianCandles : tm.t2MedianCandles, pct = which === 1 ? tm.t1HitPct : tm.t2HitPct;
+    const tip = `Out of this stock's last ${tm.trades} UT Bot signals on ${tf}, ${pct}% reached Target ${which}${INTRADAY(tf) ? " before the session closed" : ""}; ${tm.slHitPct}% hit the stop loss first.`;
+    return `<div class="sm" title="${esc(tip)}">${n != null ? `usually ~${esc(candleSpan(n, tf))}` : "rarely reached"} · hit ${pct}%</div>`;
+  }
+
+  // Higher-timeframe and breakout-retest badges.
+  function htfBadge(h, side) {
+    if (!h) return "";
+    const ok = h.ut === side && h.supertrend === side;
+    const tip = `${h.tf}: UT Bot ${h.ut || "?"}, Supertrend ${h.supertrend || "?"}`;
+    return `<div><span class="newsbadge ${ok ? "agree" : "clash"}" title="${esc(tip)}">${esc(h.tf)} ${ok ? "✓ agrees" : h.ut === side || h.supertrend === side ? "~ mixed" : "✗ against"}</span></div>`;
+  }
+  function retestBadge(r) {
+    if (!r) return "";
+    const cls = r.state === "held" ? "agree" : r.state === "failed" ? "clash" : "";
+    return `<div><span class="newsbadge ${cls}" style="${cls ? "" : "border:1px solid var(--line);color:var(--muted)"}" title="${esc(r.tip)}">${esc(r.label)}</span></div>`;
+  }
+
   function statusCell(s) {
     const L = live[s.symbol];
+    const S = s.sinceSignal;
+    // Daily/weekly setups (and intraday ones before live data arrives) use the scan's own candles.
+    if ((!L || !L.status) && S && (!INTRADAY(currentTf) || !L)) {
+      const cls = S.status.startsWith("T2") ? "T2" : S.status.includes("COST") ? "BE" : S.status.startsWith("T1") ? "T1" : S.status.startsWith("SL") ? "SL" : "OPEN";
+      const at = S.endTime || S.t1Time;
+      return `<span class="st st-${cls}">${esc(S.status)}</span>${at ? `<div class="sm">on ${INTRADAY(currentTf) ? ist(at, true) : new Date(at * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short" })}</div>` : ""}<div class="sm">since the signal candle</div>`;
+    }
     if (!L) return `<span class="sm">loading…</span>`;
     if (L.error) return `<span class="sm">no data</span>`;
     if (!L.status) return `<span class="sm">—</span>`;
@@ -435,8 +523,13 @@
   function render(prevLtp = {}) {
     const sortBy = document.getElementById("sortBy").value;
     const hideExt = document.getElementById("hideExtended").checked;
+    const htfOnly = document.getElementById("htfOnly").checked;
+    const retestOnly = document.getElementById("retestOnly").checked;
+    const hideTraps = document.getElementById("hideTraps").checked;
     const rows = lastSignals
-      .filter((s) => (sideFilter === "ALL" || s.side === sideFilter) && !(hideExt && s.extended))
+      .filter((s) => (sideFilter === "ALL" || s.side === sideFilter) && !(hideExt && s.extended)
+        && !(htfOnly && !s.htf?.agrees) && !(retestOnly && s.retest?.state !== "held")
+        && !(hideTraps && (s.traps || []).some((x) => !x.minor)))
       .sort((a, b) => sortBy === "momentum" ? b.momentum - a.momentum
         : sortBy === "rvol" ? (b.rvol ?? 0) - (a.rvol ?? 0)
         : sortBy === "pnl" ? (pnlOf(b) ?? -1e9) - (pnlOf(a) ?? -1e9)
@@ -455,19 +548,20 @@
       const flags = [
         s.extended ? `<div class="warn" title="Price is more than 1.5×ATR away from EMA 9. Wait for a pullback into the entry zone.">⚠ extended</div>` : "",
         s.fading ? `<div class="warn" title="RSI overstretched or MACD histogram weakening for 2 candles.">⚠ momentum fading</div>` : "",
+        ...(s.traps || []).map((x) => `<div class="${x.minor ? "sm" : "warn"}" title="${esc(x.tip)}">${x.minor ? "ⓘ" : "⚠"} ${esc(x.label)}</div>`),
       ].join("");
       const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
         <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf)}</td>
-        <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}</td>
+        <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}${htfBadge(s.htf, s.side)}${retestBadge(s.retest)}</td>
         <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
           <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
           ${pnl != null ? `<div class="sm">vs entry: <span class="${pnl >= 0 ? "up" : "down"}">${pnl >= 0 ? "+" : ""}${fmt(pnl)}%</span></div>` : ""}</td>
         <td class="score">${s.score}/${s.maxScore}</td>
         <td class="num"><b>${fmt(s.entryZone[0])}</b> – <b>${fmt(s.entryZone[1])}</b><div class="sm">signal close ${fmt(s.entry)}</div>${flags}</td>
         <td class="num sl">${fmt(s.stopLoss)}<div class="sm">risk ${s.riskPct}%</div></td>
-        <td class="num tg">${fmt(s.target1)}<div class="sm">book 50%</div></td>
-        <td class="num tg">${fmt(s.target2)}</td>
+        <td class="num tg">${fmt(s.target1)}<div class="sm">book 50%</div>${timingNote(s, 1, currentTf)}</td>
+        <td class="num tg">${fmt(s.target2)}${timingNote(s, 2, currentTf)}</td>
         <td class="num">${s.rvol != null ? `RVOL <b>${fmt(s.rvol)}×</b>` : ""}<div class="sm">spike ${fmt(s.volumeRatio)}× · pressure ${Math.round(s.volPressure ?? 0)}%</div><div class="sm">day vol ${q.dayVolume ? Number(q.dayVolume).toLocaleString("en-IN") : "—"}</div><div class="sm">avg value ₹${s.turnoverCr != null ? fmt(s.turnoverCr) : "—"} Cr/day</div></td>
         <td><span class="meter"><i style="width:${s.momentum}%;background:${momColor}"></i></span><b>${s.momentum}</b><div class="sm">ADX ${fmt(s.adx)} · RSI ${fmt(s.rsi)} · ROC ${s.roc >= 0 ? "+" : ""}${fmt(s.roc)}%</div></td>
         <td>${statusCell(s)}</td>
@@ -577,12 +671,18 @@
       const reasons = [];
       if (x.barsSinceFlip >= lb) reasons.push(`the ${x.side} flip was ${x.barsSinceFlip} candles ago, older than your "Signal age" setting (${lb})`);
       if (!daily && x.lastFlipTime && new Date(x.lastFlipTime * 1000 + 19800000).toISOString().slice(0, 10) !== new Date(x.lastTime * 1000 + 19800000).toISOString().slice(0, 10)) reasons.push("intraday scans only list flips from today's session");
-      if (st && st.score < minC) reasons.push(`only ${st.score} of 8 confirmations pass now (you require ${minC})`);
+      if (st && st.score < minC) reasons.push(`only ${st.score} of 8 confirmations passed at the signal candle (you require ${minC})`);
       const listed = reasons.length === 0;
       out.innerHTML = `
         <b>${esc(sym)}</b> on <b>${esc(tf)}</b>: UT Bot is in <span class="badge ${x.side}">${x.side}</span> mode since <b>${when(x.lastFlipTime)}</b> (${x.barsSinceFlip} candle${x.barsSinceFlip === 1 ? "" : "s"} ago). ${chartLinks(sym, tf).replace('class="links"', 'class="links" style="display:inline-flex;margin:0 0 0 6px"')}
         Last close ₹${fmt(x.close)}, UT trailing stop ₹${fmt(x.trailingStop)}.
-        ${st ? `Confirmations now: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
+        ${st ? `<br /><b>Trade plan from the signal candle:</b> entry ₹${fmt(st.entry)} (signal close; entry zone ₹${fmt(st.entryZone[0])}–${fmt(st.entryZone[1])}),
+          <span class="sl">stop loss ₹${fmt(st.stopLoss)}</span> (risk ${st.riskPct}%),
+          <span class="tg">Target 1 ₹${fmt(st.target1)}</span> (book 50%, then move stop to entry), <span class="tg">Target 2 ₹${fmt(st.target2)}</span>.
+          Since the signal: <b>${esc(st.sinceSignal.status)}</b>${st.sinceSignal.status === "OPEN" ? `, price now ₹${fmt(st.currentPrice)}` : ""}.<br />
+          ${st.timing && st.timing.trades >= 3 ? `<b>How long targets usually take here:</b> of this stock's last ${st.timing.trades} UT Bot signals on ${esc(tf)}, Target 1 was reached ${st.timing.t1HitPct}% of the time${st.timing.t1MedianCandles != null ? `, typically in ${esc(candleSpan(st.timing.t1MedianCandles, tf))}` : ""}. Target 2 was reached ${st.timing.t2HitPct}%${st.timing.t2MedianCandles != null ? `, typically in ${esc(candleSpan(st.timing.t2MedianCandles, tf))}` : ""}. The stop was hit first ${st.timing.slHitPct}% of the time.${INTRADAY(tf) ? " On intraday timeframes, targets are meant for the same session: anything open is squared off by 3:15 pm." : ""}<br />` : ""}
+          <b>Trap filters:</b> ${x.htf ? `higher timeframe ${esc(x.htf.tf)}: UT Bot ${esc(x.htf.ut)}, Supertrend ${esc(x.htf.supertrend)} (${x.htf.ut === x.side && x.htf.supertrend === x.side ? '<span class="up">agrees</span>' : '<span class="warn">does not fully agree</span>'}); ` : ""}breakout retest: ${esc(st.retest.label)} <span class="sm">(${esc(st.retest.tip)})</span>${st.traps.length ? `; ${st.traps.map((t) => `<span class="${t.minor ? "" : "warn"}">${t.minor ? "ⓘ" : "⚠"} ${esc(t.label)}</span> <span class="sm">(${esc(t.tip)})</span>`).join("; ")}` : "; no trap warnings"}.<br />
+          Confirmations at the signal candle: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
         ${listed ? `<span class="up">This stock appears in the scan with your current settings.</span>`
           : `<span class="warn">Not listed in the scan because ${reasons.join("; and ")}.</span> Raise "Signal age" or lower "Min confirmations" to include it.`}
         ${x.closestGapPct != null && x.closestGapPct < 0.1 ? `<br /><span class="warn">⚠ On ${when(x.closestTime)} the close was within ${fmt(x.closestGapPct)}% of the stop line. Tiny price differences between data feeds (Yahoo vs TradingView's NSE feed) can make TradingView flip there and show a different signal date.</span>` : ""}`;
@@ -597,6 +697,182 @@
     if (document.getElementById("autoScan").checked) { runScan(); timer = setInterval(runScan, autoEvery()); }
     else clearInterval(timer);
   }
+
+  // ---- Radar: pre-market watchlist, live volume shocks, bulk/block deals, FII/DII positioning ----
+  let radar = null, radarLoaded = false, radarTab = "watch", shocks = null, shockTimer = null, shockSeen = new Set(), watchFilter = "all";
+  const crore = (n) => n == null ? "—" : `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 2 })} Cr`;
+  const qty = (n) => n >= 1e7 ? `${(n / 1e7).toFixed(2)} Cr` : n >= 1e5 ? `${(n / 1e5).toFixed(2)} L` : Number(n).toLocaleString("en-IN");
+  const dateLabel = (iso) => iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "short" }) : "—";
+  const pct = (x) => `<span class="${x >= 0 ? "up" : "down"}">${x >= 0 ? "+" : ""}${fmt(x)}%</span>`;
+  const checkLink = (sym) => `<a class="lnk" href="#" onclick="document.getElementById('checkSym').value='${esc(sym)}';checkStock();document.getElementById('checkSym').scrollIntoView({behavior:'smooth',block:'center'});return false;">Check</a>`;
+  const stockCell = (sym) => `<strong>${esc(sym)}</strong><div class="links">${checkLink(sym)}</div>${chartLinks(sym, document.getElementById("interval").value)}`;
+  const radarTurnover = () => document.getElementById("radarTurnover").value;
+
+  document.querySelectorAll("#radarTabs button").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("#radarTabs button").forEach((x) => x.classList.toggle("on", x === b));
+    radarTab = b.dataset.rt;
+    if (radarTab === "live" && !shocks) loadShocks(); else renderRadar();
+  });
+
+  async function loadRadar(force) {
+    radarLoaded = true;
+    if (!force || radarTab !== "live") document.getElementById("radarOut").innerHTML = `<div class="sm">Reading NSE's end-of-day files (volume, delivery, bulk/block deals, F&amp;O positions)…</div>`;
+    try {
+      const r = await (await fetch(`/api/premarket?minTurnover=${radarTurnover()}`)).json();
+      if (r.error) throw new Error(r.error);
+      radar = r;
+      document.getElementById("radarMeta").textContent = `· based on NSE data for ${dateLabel(r.sessionDate)} · ${r.watchTotal} stocks flagged`;
+      renderRadar();
+    } catch (e) {
+      radarLoaded = false;
+      document.getElementById("radarOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load the radar.")} Try again in a minute.</div>`;
+    }
+  }
+
+  async function loadShocks(fromTimer) {
+    if (!fromTimer) document.getElementById("radarOut").innerHTML = `<div class="sm">Checking live volume for every liquid NSE stock… (about 5 seconds)</div>`;
+    try {
+      const r = await (await fetch(`/api/premarket?live=1&minTurnover=${radarTurnover()}`)).json();
+      if (r.error) throw new Error(r.error);
+      const fresh = r.shocks.filter((x) => x.isToday && x.rvol >= 3 && !shockSeen.has(x.symbol));
+      if (shocks && fresh.length && document.getElementById("shockAlert")?.checked) {
+        beep();
+        const names = fresh.slice(0, 5).map((x) => `${x.symbol} ${x.chg >= 0 ? "+" : ""}${x.chg.toFixed(1)}% (${x.rvol.toFixed(0)}× vol)`).join(", ");
+        try { if (Notification.permission === "granted") new Notification("⚡ Volume shock", { body: names }); } catch {}
+      }
+      r.shocks.forEach((x) => x.isToday && x.rvol >= 3 && shockSeen.add(x.symbol));
+      r.fresh = new Set(shocks ? fresh.map((x) => x.symbol) : []);
+      shocks = r;
+      if (radarTab === "live") renderRadar();
+    } catch (e) {
+      if (!fromTimer) document.getElementById("radarOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load live volume.")} Try again in a minute.</div>`;
+    }
+  }
+
+  function toggleShockAlert(on) {
+    clearInterval(shockTimer);
+    shockTimer = null;
+    if (on) {
+      try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
+      shockTimer = setInterval(() => { if (marketOpen()) loadShocks(true); }, 120000);
+      loadShocks(true);
+    }
+  }
+
+  function renderRadar() {
+    const out = document.getElementById("radarOut"), ctl = document.getElementById("radarControls");
+    if (radarTab === "live") return renderShocks(out, ctl);
+    if (!radar) { out.innerHTML = `<div class="sm">Loading…</div>`; if (!radarLoaded) loadRadar(); return; }
+    if (radarTab === "watch") return renderWatch(out, ctl);
+    ctl.innerHTML = "";
+    if (radarTab === "deals") return renderDeals(out);
+    if (radarTab === "fii") return renderFii(out);
+  }
+
+  const WATCH_FILTERS = { all: "All", bullish: "Bullish", spike: "🔥 Volume", delivery: "🏦 Delivery", breakout: "📈 Breakout", near: "⏳ Coiled", buildup: "🧱 Build-up", deal: "🤝 Deals", bearish: "⚠ Bearish" };
+  function renderWatch(out, ctl) {
+    ctl.innerHTML = `<label>Show <select onchange="watchFilter=this.value;renderRadar()">${Object.entries(WATCH_FILTERS).map(([k, v]) => `<option value="${k}" ${k === watchFilter ? "selected" : ""}>${v}</option>`).join("")}</select></label>`;
+    const rows = radar.watch.filter((w) => watchFilter === "all" ? true
+      : ["bullish", "bearish"].includes(watchFilter) ? w.bias === watchFilter
+      : w.tags.some((t) => t.key === watchFilter || (watchFilter === "deal" && t.key === "dealsell")));
+    out.innerHTML = `
+      <div class="sm" style="margin-bottom:6px">Stocks that left a big-money footprint in the last session (<b>${dateLabel(radar.sessionDate)}</b>), compared with their typical day over the ${radar.sessions - 1} sessions before.
+        NSE publishes these files each evening, so this list is ready <b>the night before</b> and stays the same until the next close. Plan your levels before 9:15. Tip: pick <b>🔭 Radar</b> in "Stocks" above and click Scan Now to run the UT Bot on these stocks.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stock</th><th>Why it's on the radar</th><th>Close ₹</th><th>Day chg</th><th>Volume vs usual</th><th>Delivery %</th><th>Traded value</th><th>Levels to watch ₹</th></tr></thead>
+        <tbody>${rows.length ? rows.map((w) => `<tr>
+          <td>${stockCell(w.symbol)}</td>
+          <td style="white-space:normal;min-width:220px"><span class="bias ${w.bias}">${w.bias}</span><br />${w.tags.map((t) => `<span class="rtag ${t.key}" title="${esc(t.tip)}">${esc(t.label)}</span>`).join("")}</td>
+          <td class="num">${fmt(w.close)}</td>
+          <td class="num">${pct(w.chg)}</td>
+          <td class="num"><b>${fmt(w.volX)}×</b><div class="sm">${qty(w.vol)} vs ${qty(w.avgVol)}</div></td>
+          <td class="num">${fmt(w.delivPct)}%<div class="sm">usual ${fmt(w.avgDelivPct)}%</div></td>
+          <td class="num">${crore(w.turnoverCr)}<div class="sm">avg ${crore(w.avgTurnoverCr)}</div></td>
+          <td class="num"><span class="tg">Above ${fmt(Math.max(w.high, w.recentHigh))}</span><div class="sl">Below ${fmt(w.low)}</div></td>
+        </tr>`).join("") : `<tr><td colspan="8" class="empty">No stocks match this filter.</td></tr>`}</tbody>
+      </table></div>
+      <div class="sm" style="margin-top:8px;line-height:1.6"><b>How to use it:</b> these stocks are candidates, not buy calls. A stock that had heavy volume yesterday often stays busy today, but the move can go either way.
+        Wait for the open and act only if price breaks the level in <b>Levels to watch</b> on strong volume (check ⚡ Live volume shocks), ideally with a UT Bot signal. Hover a tag to see what it means.
+        Only stocks with average daily value above ${crore(+radarTurnover())} are shown. ETFs are left out.</div>`;
+  }
+
+  function renderShocks(out, ctl) {
+    const alertOn = !!shockTimer;
+    ctl.innerHTML = `<label title="Re-checks every 2 minutes while the market is open. Beeps and shows a browser notification when a new stock starts trading at 3× its usual volume or more."><input type="checkbox" id="shockAlert" ${alertOn ? "checked" : ""} onchange="toggleShockAlert(this.checked)" /> 🔔 Alert me (every 2 min)</label> <button onclick="loadShocks()">Refresh now</button>`;
+    if (!shocks) { out.innerHTML = `<div class="sm">Loading…</div>`; return; }
+    const live = shocks.shocks.some((x) => x.isToday);
+    const when = new Date(shocks.updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+    out.innerHTML = `
+      <div class="sm" style="margin-bottom:6px">${live
+        ? `<b>${shocks.shocks.length}${shocks.shocks.length >= 150 ? "+" : ""}</b> stocks are trading at 2× or more their normal volume for this time of day, or have moved 5% or more. ${shocks.checked} liquid stocks were checked at ${when} IST.`
+        : `The market hasn't opened yet today, so this shows the <b>last session's</b> full-day volume shocks. Live data starts at 9:15. Turn on 🔔 alerts before the open.`}
+        Volume is compared with what the stock normally trades by this time of day. NSE is busiest at the open, so a stock at 5×+ in the first 15 minutes is unusual. Prices are from Yahoo Finance and can be a few minutes late.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stock</th><th>Price ₹</th><th>Change</th><th>Volume vs normal</th><th>Volume today</th><th>Value traded</th><th>Day range ₹</th><th>Also on</th></tr></thead>
+        <tbody>${shocks.shocks.length ? shocks.shocks.map((x) => {
+          const w = radar?.watch.find((r) => r.symbol === x.symbol);
+          return `<tr${shocks.fresh?.has(x.symbol) ? ' class="flash"' : ""}>
+          <td>${stockCell(x.symbol)}${shocks.fresh?.has(x.symbol) ? '<div><span class="newsbadge agree">NEW</span></div>' : ""}</td>
+          <td class="num ltp">${fmt(x.ltp)}</td>
+          <td class="num">${pct(x.chg)}</td>
+          <td class="num"><b class="${x.rvol >= 5 ? "up" : ""}">${fmt(x.rvol)}×</b></td>
+          <td class="num">${qty(x.dayVolume)}<div class="sm">usual day ${qty(x.avgVol)}</div></td>
+          <td class="num">${crore(x.valueCr)}</td>
+          <td class="num">${fmt(x.dayLow)} – ${fmt(x.dayHigh)}</td>
+          <td>${w ? `<span class="rtag near" title="${esc(w.tags.map((t) => t.label).join(", "))}">📋 yesterday's watchlist</span>` : ""}${newsFor(x.symbol).length ? `<span class="rtag" title="${esc(newsFor(x.symbol)[0].title)}">📰 in the news</span>` : ""}</td>
+        </tr>`; }).join("") : `<tr><td colspan="8" class="empty">No volume shocks right now.</td></tr>`}</tbody>
+      </table></div>`;
+  }
+
+  function renderDeals(out) {
+    const d = radar.deals;
+    const inst = d.deals.filter((x) => !/Other|Prop/.test(x.type));
+    const row = (x) => `<tr>
+      <td>${stockCell(x.symbol)}<div class="name">${esc(x.name)}</div></td>
+      <td><span class="badge ${x.side}">${x.side}</span></td>
+      <td style="white-space:normal;min-width:200px">${esc(x.client)}<div class="sm">${esc(x.type)}</div></td>
+      <td class="num">${qty(x.qty)}</td><td class="num">${fmt(x.price)}</td><td class="num"><b>${crore(x.valueCr)}</b></td><td class="sm">${esc(x.kind)}</td></tr>`;
+    out.innerHTML = `
+      <div class="sm" style="margin-bottom:6px">Bulk deals (one client trading more than 0.5% of a company's shares in a day) and block deals (₹10 Cr+ trades in the special window) for <b>${dateLabel(d.date)}</b>, as disclosed by NSE that evening. These are the <b>only</b> stock-level buys by funds that become public the same day.
+        Each client's buys and sells are netted. ${d.droppedIntraday} clients who bought and sold about the same amount the same day (mostly HFT and arbitrage desks) were left out because that isn't a real position.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stock</th><th>Net</th><th>Client</th><th>Qty</th><th>Avg price ₹</th><th>Value</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td colspan="7" class="sm"><b>Funds, FPIs, insurers and investment firms (${inst.length})</b></td></tr>
+          ${inst.length ? inst.map(row).join("") : `<tr><td colspan="7" class="empty">No institutional bulk or block deals in this session.</td></tr>`}
+          <tr><td colspan="7" class="sm"><b>Promoters, individuals and companies (${d.deals.length - inst.length})</b></td></tr>
+          ${d.deals.filter((x) => /Other|Prop/.test(x.type)).map(row).join("")}
+        </tbody>
+      </table></div>
+      <div class="sm" style="margin-top:8px">The investor type is guessed from the client's name, so check the name. A promoter or a known investor buying a large block is usually read as a positive sign. Big sellers can weigh on the price for days.</div>`;
+  }
+
+  function renderFii(out) {
+    const p = radar.positioning;
+    if (!p) { out.innerHTML = `<div class="warn">NSE's F&amp;O participant file isn't available yet. It's usually published by 7–8 pm.</div>`; return; }
+    const n = (x) => x == null ? "—" : `<span class="${x >= 0 ? "up" : "down"}">${x >= 0 ? "+" : ""}${Number(x).toLocaleString("en-IN")}</span>`;
+    const fii = p.rows.find((r) => r.who === "FII");
+    const mood = !fii ? "" : fii.idxLongPct >= 60 ? "bullish (mostly long index futures)" : fii.idxLongPct <= 35 ? "bearish (heavily short index futures)" : fii.idxLongPct < 45 ? "cautious (more short than long)" : "neutral to mildly bullish";
+    out.innerHTML = `
+      ${fii ? `<div class="callout">FIIs are <b>${fii.idxLongPct}% long</b> in Nifty/Bank Nifty futures, which is <b>${mood}</b>.
+        ${fii.idxNetChange != null ? `They ${fii.idxNetChange >= 0 ? "added" : "cut"} <b>${Math.abs(fii.idxNetChange).toLocaleString("en-IN")}</b> net long contracts on ${dateLabel(p.date)}.` : ""}
+        FII positioning shapes the whole market's direction more than any single stock. When they're very short, rallies often fade, and short-covering can cause sharp up-moves.</div>` : ""}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Who</th><th>Index futures: % long</th><th>Index futures net</th><th>Change</th><th>Stock futures net</th><th>Change</th><th>Index options net (bullish +)</th><th>Change</th></tr></thead>
+        <tbody>${p.rows.map((r) => `<tr><td><b>${esc(r.who)}</b></td><td class="num">${r.idxLongPct}%</td><td class="num">${n(r.idxNet)}</td><td class="num">${n(r.idxNetChange)}</td><td class="num">${n(r.stkNet)}</td><td class="num">${n(r.stkNetChange)}</td><td class="num">${n(r.optNet)}</td><td class="num">${n(r.optNetChange)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="sm" style="margin-top:8px;line-height:1.6">Open interest in contracts at the close of ${dateLabel(p.date)}${p.prevDate ? `; change vs ${dateLabel(p.prevDate)}` : ""}. Source: NSE participant-wise open interest.
+        <b>Why no stock-by-stock FII/DII or mutual fund buying?</b> India doesn't publish it daily. NSE gives only the total FII and DII cash buying and selling each evening (shown on nseindia.com and most broker apps, and it blocks automated access). Mutual funds disclose holdings once a month, about 10 days after month-end, and shareholding patterns come quarterly. Bulk and block deals, in the 🤝 tab, are the only same-day stock-level clue.</div>`;
+  }
+
+  // Symbols for "🔭 Radar" in the stock list: bullish watchlist + today's live volume shocks.
+  async function radarUniverse() {
+    if (!radar) await loadRadar();
+    if (marketOpen() || !shocks) await loadShocks(true);
+    const syms = new Set([...(shocks?.shocks || []).filter((x) => x.isToday).map((x) => x.symbol), ...(radar?.watch || []).filter((w) => w.bias !== "bearish").map((w) => w.symbol)]);
+    return { stocks: [...syms].slice(0, 300).map((symbol) => names[symbol] || { symbol }) };
+  }
+  if (document.getElementById("radarBox").open) loadRadar();
   refreshLive();
 </script>
 </body>
