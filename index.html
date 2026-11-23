@@ -168,7 +168,7 @@
     <label>UT Key Value <input type="number" id="keyValue" value="1" step="0.5" min="0.5" /></label>
     <label>UT ATR Period <input type="number" id="atrPeriod" value="10" min="1" /></label>
     <label>Min confirmations
-      <select id="minConfirm">
+      <select id="minConfirm" onchange="rescanIfShown()">
         <option value="5">5 of 8</option>
         <option value="6" selected>6 of 8</option>
         <option value="7">7 of 8</option>
@@ -176,13 +176,14 @@
       </select>
     </label>
     <label title="How old a UT Bot buy/sell flip can be and still be listed. TradingView keeps showing old signals on the chart; this scanner lists fresh ones by default.">Signal age
-      <select id="lookback">
+      <select id="lookback" onchange="rescanIfShown()">
         <option value="1">Last candle only</option>
         <option value="3" selected>Last 3 candles (fresh)</option>
         <option value="5">Last 5 candles</option>
         <option value="10">Last 10 candles</option>
         <option value="20">Last 20 candles</option>
       </select>
+      <span class="sm" title="Intraday timeframes only list signals from today's session, so early in the day there may be fewer candles than the setting.">intraday: today's candles only</span>
     </label>
     <button class="primary" id="scanBtn" onclick="runScan()">Scan Now</button>
     <div class="toggles">
@@ -293,7 +294,8 @@
     A <b>SELL</b> (short) is the mirror image.<br />
     <b>Volume column:</b> <b>RVOL</b> is today's volume so far compared with the average of the last 10 sessions at the same time of day (2× means twice as busy as usual). <b>Pressure</b> is the share of the last 20 candles' volume that traded on candles moving in the signal's direction.<br />
     <b>Momentum score (0–100)</b> blends ADX trend strength, RSI, the +DI/−DI spread and relative volume. <b>Extended</b> means price is more than 1.5×ATR from EMA 9, so you'd be chasing. Wait for a pullback into the entry zone. <b>Fading</b> means RSI is overstretched or the MACD histogram has weakened for 2 candles.<br />
-    <b>Entry &amp; exit plan:</b> buy within the <b>entry zone</b> (signal close back toward EMA 9). The <b>stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. At <b>Target 1</b> (1.5× risk), book half and move the stop to your entry price. Let the rest run to <b>Target 2</b> (3× risk). Square off anything still open by 3:15 pm.
+    <b>Entry &amp; exit plan:</b> buy within the <b>entry zone</b> (signal close back toward EMA 9). The <b>stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. At <b>Target 1</b> (1.5× risk), book half and move the stop to your entry price. Let the rest run to <b>Target 2</b> (3× risk).
+    The entry, stop and targets always come from the <b>signal candle</b>, so a signal from 5 candles ago keeps its original plan. <b>How long will it take?</b> Under each target, "usually ~N candles" is how long that target typically took on this stock's own past UT Bot signals on the same timeframe, with how often it was hit. On intraday timeframes, targets are meant for the same session. On 1 day the estimate is in trading days, and on 1 week in weeks. Square off anything still open by 3:15 pm.
     <b>Live Status</b> follows each setup minute by minute on today's 1-minute candles: OPEN, T1 HIT, T2 HIT, SL HIT, or "exit at cost" after T1. If a minute touches both the stop and a target, the stop is assumed to have hit first.<br />
     <b>Disclaimer:</b> No indicator gives "exact" signals. These are rule-based setups, not investment advice. Prices come from Yahoo Finance and can be delayed by a few minutes. Always confirm on your broker's chart and size positions to your risk.
   </div>
@@ -402,6 +404,7 @@
       if (seen.size && fresh.length) beep();
       signals.forEach((s) => seen.add(keyOf(s)));
       lastSignals = signals;
+      scannedOnce = true;
       live = {};
 
       const buys = signals.filter((s) => s.side === "BUY").length;
@@ -459,8 +462,37 @@
     return ((s.side === "BUY" ? ltp - s.entry : s.entry - ltp) / s.entry) * 100;
   };
 
+  // Changing Signal age / Min confirmations re-runs the scan so the table matches the setting.
+  let scannedOnce = false;
+  function rescanIfShown() { if (scannedOnce && !scanning) runScan(); }
+
+  // Rough clock time for N candles of the scanned timeframe.
+  const TF_MIN = { "1m": 1, "2m": 2, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "45m": 45, "1h": 60, "75m": 75, "2h": 120, "4h": 240 };
+  function candleSpan(n, tf) {
+    if (n == null) return "";
+    if (tf === "1wk") return `${n} week${n === 1 ? "" : "s"}`;
+    if (tf === "1d") return `${n} trading day${n === 1 ? "" : "s"}`;
+    const mins = n * (TF_MIN[tf] || 5);
+    return `${n} candle${n === 1 ? "" : "s"} (≈ ${mins < 60 ? mins + " min" : (mins / 60).toFixed(mins % 60 ? 1 : 0) + " hr"})`;
+  }
+  // "Usually reached in …" line under a target, from this stock's own past signals.
+  function timingNote(s, which, tf) {
+    const tm = s.timing;
+    if (!tm || tm.trades < 3) return `<div class="sm">not enough history</div>`;
+    const n = which === 1 ? tm.t1MedianCandles : tm.t2MedianCandles, pct = which === 1 ? tm.t1HitPct : tm.t2HitPct;
+    const tip = `Out of this stock's last ${tm.trades} UT Bot signals on ${tf}, ${pct}% reached Target ${which}${INTRADAY(tf) ? " before the session closed" : ""}; ${tm.slHitPct}% hit the stop loss first.`;
+    return `<div class="sm" title="${esc(tip)}">${n != null ? `usually ~${esc(candleSpan(n, tf))}` : "rarely reached"} · hit ${pct}%</div>`;
+  }
+
   function statusCell(s) {
     const L = live[s.symbol];
+    const S = s.sinceSignal;
+    // Daily/weekly setups (and intraday ones before live data arrives) use the scan's own candles.
+    if ((!L || !L.status) && S && (!INTRADAY(currentTf) || !L)) {
+      const cls = S.status.startsWith("T2") ? "T2" : S.status.includes("COST") ? "BE" : S.status.startsWith("T1") ? "T1" : S.status.startsWith("SL") ? "SL" : "OPEN";
+      const at = S.endTime || S.t1Time;
+      return `<span class="st st-${cls}">${esc(S.status)}</span>${at ? `<div class="sm">on ${INTRADAY(currentTf) ? ist(at, true) : new Date(at * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short" })}</div>` : ""}<div class="sm">since the signal candle</div>`;
+    }
     if (!L) return `<span class="sm">loading…</span>`;
     if (L.error) return `<span class="sm">no data</span>`;
     if (!L.status) return `<span class="sm">—</span>`;
@@ -505,8 +537,8 @@
         <td class="score">${s.score}/${s.maxScore}</td>
         <td class="num"><b>${fmt(s.entryZone[0])}</b> – <b>${fmt(s.entryZone[1])}</b><div class="sm">signal close ${fmt(s.entry)}</div>${flags}</td>
         <td class="num sl">${fmt(s.stopLoss)}<div class="sm">risk ${s.riskPct}%</div></td>
-        <td class="num tg">${fmt(s.target1)}<div class="sm">book 50%</div></td>
-        <td class="num tg">${fmt(s.target2)}</td>
+        <td class="num tg">${fmt(s.target1)}<div class="sm">book 50%</div>${timingNote(s, 1, currentTf)}</td>
+        <td class="num tg">${fmt(s.target2)}${timingNote(s, 2, currentTf)}</td>
         <td class="num">${s.rvol != null ? `RVOL <b>${fmt(s.rvol)}×</b>` : ""}<div class="sm">spike ${fmt(s.volumeRatio)}× · pressure ${Math.round(s.volPressure ?? 0)}%</div><div class="sm">day vol ${q.dayVolume ? Number(q.dayVolume).toLocaleString("en-IN") : "—"}</div><div class="sm">avg value ₹${s.turnoverCr != null ? fmt(s.turnoverCr) : "—"} Cr/day</div></td>
         <td><span class="meter"><i style="width:${s.momentum}%;background:${momColor}"></i></span><b>${s.momentum}</b><div class="sm">ADX ${fmt(s.adx)} · RSI ${fmt(s.rsi)} · ROC ${s.roc >= 0 ? "+" : ""}${fmt(s.roc)}%</div></td>
         <td>${statusCell(s)}</td>
@@ -616,12 +648,17 @@
       const reasons = [];
       if (x.barsSinceFlip >= lb) reasons.push(`the ${x.side} flip was ${x.barsSinceFlip} candles ago, older than your "Signal age" setting (${lb})`);
       if (!daily && x.lastFlipTime && new Date(x.lastFlipTime * 1000 + 19800000).toISOString().slice(0, 10) !== new Date(x.lastTime * 1000 + 19800000).toISOString().slice(0, 10)) reasons.push("intraday scans only list flips from today's session");
-      if (st && st.score < minC) reasons.push(`only ${st.score} of 8 confirmations pass now (you require ${minC})`);
+      if (st && st.score < minC) reasons.push(`only ${st.score} of 8 confirmations passed at the signal candle (you require ${minC})`);
       const listed = reasons.length === 0;
       out.innerHTML = `
         <b>${esc(sym)}</b> on <b>${esc(tf)}</b>: UT Bot is in <span class="badge ${x.side}">${x.side}</span> mode since <b>${when(x.lastFlipTime)}</b> (${x.barsSinceFlip} candle${x.barsSinceFlip === 1 ? "" : "s"} ago). ${chartLinks(sym, tf).replace('class="links"', 'class="links" style="display:inline-flex;margin:0 0 0 6px"')}
         Last close ₹${fmt(x.close)}, UT trailing stop ₹${fmt(x.trailingStop)}.
-        ${st ? `Confirmations now: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
+        ${st ? `<br /><b>Trade plan from the signal candle:</b> entry ₹${fmt(st.entry)} (signal close; entry zone ₹${fmt(st.entryZone[0])}–${fmt(st.entryZone[1])}),
+          <span class="sl">stop loss ₹${fmt(st.stopLoss)}</span> (risk ${st.riskPct}%),
+          <span class="tg">Target 1 ₹${fmt(st.target1)}</span> (book 50%, then move stop to entry), <span class="tg">Target 2 ₹${fmt(st.target2)}</span>.
+          Since the signal: <b>${esc(st.sinceSignal.status)}</b>${st.sinceSignal.status === "OPEN" ? `, price now ₹${fmt(st.currentPrice)}` : ""}.<br />
+          ${st.timing && st.timing.trades >= 3 ? `<b>How long targets usually take here:</b> of this stock's last ${st.timing.trades} UT Bot signals on ${esc(tf)}, Target 1 was reached ${st.timing.t1HitPct}% of the time${st.timing.t1MedianCandles != null ? `, typically in ${esc(candleSpan(st.timing.t1MedianCandles, tf))}` : ""}. Target 2 was reached ${st.timing.t2HitPct}%${st.timing.t2MedianCandles != null ? `, typically in ${esc(candleSpan(st.timing.t2MedianCandles, tf))}` : ""}. The stop was hit first ${st.timing.slHitPct}% of the time.${INTRADAY(tf) ? " On intraday timeframes, targets are meant for the same session: anything open is squared off by 3:15 pm." : ""}<br />` : ""}
+          Confirmations at the signal candle: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
         ${listed ? `<span class="up">This stock appears in the scan with your current settings.</span>`
           : `<span class="warn">Not listed in the scan because ${reasons.join("; and ")}.</span> Raise "Signal age" or lower "Min confirmations" to include it.`}
         ${x.closestGapPct != null && x.closestGapPct < 0.1 ? `<br /><span class="warn">⚠ On ${when(x.closestTime)} the close was within ${fmt(x.closestGapPct)}% of the stop line. Tiny price differences between data feeds (Yahoo vs TradingView's NSE feed) can make TradingView flip there and show a different signal date.</span>` : ""}`;

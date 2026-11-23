@@ -27,7 +27,7 @@ export default async (req) => {
     await Promise.all(symbols.slice(0, 5).map(async (symbol) => {
       try {
         const candles = await getCandles(symbol, interval, { confirmedOnly });
-        states[symbol] = { ...utState(candles, { keyValue, atrPeriod }), quote: candles.quote };
+        states[symbol] = { ...utState(candles, { keyValue, atrPeriod, intraday: isIntraday(interval) }), quote: candles.quote };
       } catch {
         states[symbol] = { error: "No data for this symbol. Use the NSE symbol, e.g. NESTLEIND." };
       }
