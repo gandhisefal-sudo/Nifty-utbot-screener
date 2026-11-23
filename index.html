@@ -62,6 +62,18 @@
     .newsbadge.agree { background: #0d2a1b; color: #86efac; border: 1px solid #1f6f46; }
     .newsbadge.clash { background: #3a3315; color: #fde68a; border: 1px solid #5c4f1a; }
     @media (max-width: 760px) { .nitem { grid-template-columns: 1fr; } }
+    .radar { border-color: #2b4a6b; }
+    .radar .table-wrap { max-height: 560px; overflow-y: auto; }
+    .radar table { font-size: 13px; }
+    .radar td, .radar th { padding: 7px 10px; }
+    .rtag { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); margin: 0 4px 3px 0; display: inline-block; cursor: help; white-space: nowrap; }
+    .rtag.spike, .rtag.breakout, .rtag.delivery, .rtag.deal, .rtag.buildup { border-color: #1f6f46; color: #86efac; background: #0d2a1b; }
+    .rtag.near { border-color: #2b4a6b; color: #7dd3fc; background: #0c2133; }
+    .rtag.distribution, .rtag.dealsell { border-color: #6b1f2e; color: #fda4af; background: #2a0d14; }
+    .bias { font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .bias.bullish { color: var(--buy); } .bias.bearish { color: var(--sell); } .bias.mixed { color: #fbbf24; }
+    .callout { background: #0c2133; border: 1px solid #2b4a6b; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); margin: 8px 0; }
+    .callout b { color: var(--text); }
     .chip.ok { border-color: #1f6f46; color: #86efac; background: #0d2a1b; }
     .empty { color: var(--muted); text-align: center; padding: 28px; }
     .note { margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -114,6 +126,9 @@
         <optgroup label="Beyond Nifty">
           <option value="nonNifty">Non-Nifty stocks (~1,900)</option>
           <option value="allEq">All NSE stocks (~2,400)</option>
+        </optgroup>
+        <optgroup label="From the Radar panel">
+          <option value="radar">🔭 Radar watchlist + live volume shocks</option>
         </optgroup>
       </select>
     </label>
@@ -185,6 +200,30 @@
     </label>
     <div id="checkOut" class="sm">Uses the timeframe and UT Bot settings selected above.</div>
   </div>
+
+  <details class="newsbox radar" id="radarBox" open ontoggle="if (this.open && !radarLoaded) loadRadar()">
+    <summary>🔭 Radar: stocks to watch before and right after the open <span class="sm" id="radarMeta"></span></summary>
+    <div class="callout"><b>Can you know in advance what FIIs, DIIs or mutual funds will buy?</b> No. Their orders aren't public before they trade, and anyone claiming to know them is guessing or breaking the law.
+      What you <i>can</i> see is the trail big money leaves: <b>unusual volume</b>, <b>high delivery</b> (shares actually taken home, not day-traded), <b>tight ranges near a breakout</b>, and <b>disclosed bulk and block deals</b>. The fastest warning for a move like ITI's comes in the first minutes after 9:15. Keep <b>⚡ Live volume shocks</b> open with alerts on.</div>
+    <div class="newsbar">
+      <span class="tabs" style="margin:0" id="radarTabs">
+        <button class="on" data-rt="watch">📋 Watchlist for today</button>
+        <button data-rt="live">⚡ Live volume shocks</button>
+        <button data-rt="deals">🤝 Bulk &amp; block deals</button>
+        <button data-rt="fii">🏛 FII / DII positioning</button>
+      </span>
+      <label>Min liquidity
+        <select id="radarTurnover" onchange="loadRadar(true); if (radarTab === 'live') loadShocks()">
+          <option value="0.5">₹0.5 Cr+</option>
+          <option value="1" selected>₹1 Cr+</option>
+          <option value="5">₹5 Cr+</option>
+          <option value="25">₹25 Cr+</option>
+        </select>
+      </label>
+      <span id="radarControls"></span>
+    </div>
+    <div id="radarOut"><div class="sm">Open this panel to load the radar.</div></div>
+  </details>
 
   <details class="newsbox" id="newsBox" ontoggle="if (this.open && !newsLoaded) loadNews()">
     <summary>📰 News sentiment: stocks with positive or negative news <span class="sm" id="newsMeta"></span></summary>
@@ -336,7 +375,7 @@
 
     try {
       statusEl.textContent = "Loading the stock list from NSE...";
-      const uni = await (await fetch(`/api/universe?index=${index}`)).json();
+      const uni = index === "radar" ? await radarUniverse() : await (await fetch(`/api/universe?index=${index}`)).json();
       uni.stocks.forEach((s) => names[s.symbol] = s);
       const symbols = uni.stocks.map((s) => s.symbol);
       const batches = [];
@@ -597,6 +636,182 @@
     if (document.getElementById("autoScan").checked) { runScan(); timer = setInterval(runScan, autoEvery()); }
     else clearInterval(timer);
   }
+
+  // ---- Radar: pre-market watchlist, live volume shocks, bulk/block deals, FII/DII positioning ----
+  let radar = null, radarLoaded = false, radarTab = "watch", shocks = null, shockTimer = null, shockSeen = new Set(), watchFilter = "all";
+  const crore = (n) => n == null ? "—" : `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: n >= 100 ? 0 : 2 })} Cr`;
+  const qty = (n) => n >= 1e7 ? `${(n / 1e7).toFixed(2)} Cr` : n >= 1e5 ? `${(n / 1e5).toFixed(2)} L` : Number(n).toLocaleString("en-IN");
+  const dateLabel = (iso) => iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "short" }) : "—";
+  const pct = (x) => `<span class="${x >= 0 ? "up" : "down"}">${x >= 0 ? "+" : ""}${fmt(x)}%</span>`;
+  const checkLink = (sym) => `<a class="lnk" href="#" onclick="document.getElementById('checkSym').value='${esc(sym)}';checkStock();document.getElementById('checkSym').scrollIntoView({behavior:'smooth',block:'center'});return false;">Check</a>`;
+  const stockCell = (sym) => `<strong>${esc(sym)}</strong><div class="links">${checkLink(sym)}</div>${chartLinks(sym, document.getElementById("interval").value)}`;
+  const radarTurnover = () => document.getElementById("radarTurnover").value;
+
+  document.querySelectorAll("#radarTabs button").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("#radarTabs button").forEach((x) => x.classList.toggle("on", x === b));
+    radarTab = b.dataset.rt;
+    if (radarTab === "live" && !shocks) loadShocks(); else renderRadar();
+  });
+
+  async function loadRadar(force) {
+    radarLoaded = true;
+    if (!force || radarTab !== "live") document.getElementById("radarOut").innerHTML = `<div class="sm">Reading NSE's end-of-day files (volume, delivery, bulk/block deals, F&amp;O positions)…</div>`;
+    try {
+      const r = await (await fetch(`/api/premarket?minTurnover=${radarTurnover()}`)).json();
+      if (r.error) throw new Error(r.error);
+      radar = r;
+      document.getElementById("radarMeta").textContent = `· based on NSE data for ${dateLabel(r.sessionDate)} · ${r.watchTotal} stocks flagged`;
+      renderRadar();
+    } catch (e) {
+      radarLoaded = false;
+      document.getElementById("radarOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load the radar.")} Try again in a minute.</div>`;
+    }
+  }
+
+  async function loadShocks(fromTimer) {
+    if (!fromTimer) document.getElementById("radarOut").innerHTML = `<div class="sm">Checking live volume for every liquid NSE stock… (about 5 seconds)</div>`;
+    try {
+      const r = await (await fetch(`/api/premarket?live=1&minTurnover=${radarTurnover()}`)).json();
+      if (r.error) throw new Error(r.error);
+      const fresh = r.shocks.filter((x) => x.isToday && x.rvol >= 3 && !shockSeen.has(x.symbol));
+      if (shocks && fresh.length && document.getElementById("shockAlert")?.checked) {
+        beep();
+        const names = fresh.slice(0, 5).map((x) => `${x.symbol} ${x.chg >= 0 ? "+" : ""}${x.chg.toFixed(1)}% (${x.rvol.toFixed(0)}× vol)`).join(", ");
+        try { if (Notification.permission === "granted") new Notification("⚡ Volume shock", { body: names }); } catch {}
+      }
+      r.shocks.forEach((x) => x.isToday && x.rvol >= 3 && shockSeen.add(x.symbol));
+      r.fresh = new Set(shocks ? fresh.map((x) => x.symbol) : []);
+      shocks = r;
+      if (radarTab === "live") renderRadar();
+    } catch (e) {
+      if (!fromTimer) document.getElementById("radarOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load live volume.")} Try again in a minute.</div>`;
+    }
+  }
+
+  function toggleShockAlert(on) {
+    clearInterval(shockTimer);
+    shockTimer = null;
+    if (on) {
+      try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
+      shockTimer = setInterval(() => { if (marketOpen()) loadShocks(true); }, 120000);
+      loadShocks(true);
+    }
+  }
+
+  function renderRadar() {
+    const out = document.getElementById("radarOut"), ctl = document.getElementById("radarControls");
+    if (radarTab === "live") return renderShocks(out, ctl);
+    if (!radar) { out.innerHTML = `<div class="sm">Loading…</div>`; if (!radarLoaded) loadRadar(); return; }
+    if (radarTab === "watch") return renderWatch(out, ctl);
+    ctl.innerHTML = "";
+    if (radarTab === "deals") return renderDeals(out);
+    if (radarTab === "fii") return renderFii(out);
+  }
+
+  const WATCH_FILTERS = { all: "All", bullish: "Bullish", spike: "🔥 Volume", delivery: "🏦 Delivery", breakout: "📈 Breakout", near: "⏳ Coiled", buildup: "🧱 Build-up", deal: "🤝 Deals", bearish: "⚠ Bearish" };
+  function renderWatch(out, ctl) {
+    ctl.innerHTML = `<label>Show <select onchange="watchFilter=this.value;renderRadar()">${Object.entries(WATCH_FILTERS).map(([k, v]) => `<option value="${k}" ${k === watchFilter ? "selected" : ""}>${v}</option>`).join("")}</select></label>`;
+    const rows = radar.watch.filter((w) => watchFilter === "all" ? true
+      : ["bullish", "bearish"].includes(watchFilter) ? w.bias === watchFilter
+      : w.tags.some((t) => t.key === watchFilter || (watchFilter === "deal" && t.key === "dealsell")));
+    out.innerHTML = `
+      <div class="sm" style="margin-bottom:6px">Stocks that left a big-money footprint in the last session (<b>${dateLabel(radar.sessionDate)}</b>), compared with their typical day over the ${radar.sessions - 1} sessions before.
+        NSE publishes these files each evening, so this list is ready <b>the night before</b> and stays the same until the next close. Plan your levels before 9:15. Tip: pick <b>🔭 Radar</b> in "Stocks" above and click Scan Now to run the UT Bot on these stocks.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stock</th><th>Why it's on the radar</th><th>Close ₹</th><th>Day chg</th><th>Volume vs usual</th><th>Delivery %</th><th>Traded value</th><th>Levels to watch ₹</th></tr></thead>
+        <tbody>${rows.length ? rows.map((w) => `<tr>
+          <td>${stockCell(w.symbol)}</td>
+          <td style="white-space:normal;min-width:220px"><span class="bias ${w.bias}">${w.bias}</span><br />${w.tags.map((t) => `<span class="rtag ${t.key}" title="${esc(t.tip)}">${esc(t.label)}</span>`).join("")}</td>
+          <td class="num">${fmt(w.close)}</td>
+          <td class="num">${pct(w.chg)}</td>
+          <td class="num"><b>${fmt(w.volX)}×</b><div class="sm">${qty(w.vol)} vs ${qty(w.avgVol)}</div></td>
+          <td class="num">${fmt(w.delivPct)}%<div class="sm">usual ${fmt(w.avgDelivPct)}%</div></td>
+          <td class="num">${crore(w.turnoverCr)}<div class="sm">avg ${crore(w.avgTurnoverCr)}</div></td>
+          <td class="num"><span class="tg">Above ${fmt(Math.max(w.high, w.recentHigh))}</span><div class="sl">Below ${fmt(w.low)}</div></td>
+        </tr>`).join("") : `<tr><td colspan="8" class="empty">No stocks match this filter.</td></tr>`}</tbody>
+      </table></div>
+      <div class="sm" style="margin-top:8px;line-height:1.6"><b>How to use it:</b> these stocks are candidates, not buy calls. A stock that had heavy volume yesterday often stays busy today, but the move can go either way.
+        Wait for the open and act only if price breaks the level in <b>Levels to watch</b> on strong volume (check ⚡ Live volume shocks), ideally with a UT Bot signal. Hover a tag to see what it means.
+        Only stocks with average daily value above ${crore(+radarTurnover())} are shown. ETFs are left out.</div>`;
+  }
+
+  function renderShocks(out, ctl) {
+    const alertOn = !!shockTimer;
+    ctl.innerHTML = `<label title="Re-checks every 2 minutes while the market is open. Beeps and shows a browser notification when a new stock starts trading at 3× its usual volume or more."><input type="checkbox" id="shockAlert" ${alertOn ? "checked" : ""} onchange="toggleShockAlert(this.checked)" /> 🔔 Alert me (every 2 min)</label> <button onclick="loadShocks()">Refresh now</button>`;
+    if (!shocks) { out.innerHTML = `<div class="sm">Loading…</div>`; return; }
+    const live = shocks.shocks.some((x) => x.isToday);
+    const when = new Date(shocks.updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+    out.innerHTML = `
+      <div class="sm" style="margin-bottom:6px">${live
+        ? `<b>${shocks.shocks.length}${shocks.shocks.length >= 150 ? "+" : ""}</b> stocks are trading at 2× or more their normal volume for this time of day, or have moved 5% or more. ${shocks.checked} liquid stocks were checked at ${when} IST.`
+        : `The market hasn't opened yet today, so this shows the <b>last session's</b> full-day volume shocks. Live data starts at 9:15. Turn on 🔔 alerts before the open.`}
+        Volume is compared with what the stock normally trades by this time of day. NSE is busiest at the open, so a stock at 5×+ in the first 15 minutes is unusual. Prices are from Yahoo Finance and can be a few minutes late.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stock</th><th>Price ₹</th><th>Change</th><th>Volume vs normal</th><th>Volume today</th><th>Value traded</th><th>Day range ₹</th><th>Also on</th></tr></thead>
+        <tbody>${shocks.shocks.length ? shocks.shocks.map((x) => {
+          const w = radar?.watch.find((r) => r.symbol === x.symbol);
+          return `<tr${shocks.fresh?.has(x.symbol) ? ' class="flash"' : ""}>
+          <td>${stockCell(x.symbol)}${shocks.fresh?.has(x.symbol) ? '<div><span class="newsbadge agree">NEW</span></div>' : ""}</td>
+          <td class="num ltp">${fmt(x.ltp)}</td>
+          <td class="num">${pct(x.chg)}</td>
+          <td class="num"><b class="${x.rvol >= 5 ? "up" : ""}">${fmt(x.rvol)}×</b></td>
+          <td class="num">${qty(x.dayVolume)}<div class="sm">usual day ${qty(x.avgVol)}</div></td>
+          <td class="num">${crore(x.valueCr)}</td>
+          <td class="num">${fmt(x.dayLow)} – ${fmt(x.dayHigh)}</td>
+          <td>${w ? `<span class="rtag near" title="${esc(w.tags.map((t) => t.label).join(", "))}">📋 yesterday's watchlist</span>` : ""}${newsFor(x.symbol).length ? `<span class="rtag" title="${esc(newsFor(x.symbol)[0].title)}">📰 in the news</span>` : ""}</td>
+        </tr>`; }).join("") : `<tr><td colspan="8" class="empty">No volume shocks right now.</td></tr>`}</tbody>
+      </table></div>`;
+  }
+
+  function renderDeals(out) {
+    const d = radar.deals;
+    const inst = d.deals.filter((x) => !/Other|Prop/.test(x.type));
+    const row = (x) => `<tr>
+      <td>${stockCell(x.symbol)}<div class="name">${esc(x.name)}</div></td>
+      <td><span class="badge ${x.side}">${x.side}</span></td>
+      <td style="white-space:normal;min-width:200px">${esc(x.client)}<div class="sm">${esc(x.type)}</div></td>
+      <td class="num">${qty(x.qty)}</td><td class="num">${fmt(x.price)}</td><td class="num"><b>${crore(x.valueCr)}</b></td><td class="sm">${esc(x.kind)}</td></tr>`;
+    out.innerHTML = `
+      <div class="sm" style="margin-bottom:6px">Bulk deals (one client trading more than 0.5% of a company's shares in a day) and block deals (₹10 Cr+ trades in the special window) for <b>${dateLabel(d.date)}</b>, as disclosed by NSE that evening. These are the <b>only</b> stock-level buys by funds that become public the same day.
+        Each client's buys and sells are netted. ${d.droppedIntraday} clients who bought and sold about the same amount the same day (mostly HFT and arbitrage desks) were left out because that isn't a real position.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stock</th><th>Net</th><th>Client</th><th>Qty</th><th>Avg price ₹</th><th>Value</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td colspan="7" class="sm"><b>Funds, FPIs, insurers and investment firms (${inst.length})</b></td></tr>
+          ${inst.length ? inst.map(row).join("") : `<tr><td colspan="7" class="empty">No institutional bulk or block deals in this session.</td></tr>`}
+          <tr><td colspan="7" class="sm"><b>Promoters, individuals and companies (${d.deals.length - inst.length})</b></td></tr>
+          ${d.deals.filter((x) => /Other|Prop/.test(x.type)).map(row).join("")}
+        </tbody>
+      </table></div>
+      <div class="sm" style="margin-top:8px">The investor type is guessed from the client's name, so check the name. A promoter or a known investor buying a large block is usually read as a positive sign. Big sellers can weigh on the price for days.</div>`;
+  }
+
+  function renderFii(out) {
+    const p = radar.positioning;
+    if (!p) { out.innerHTML = `<div class="warn">NSE's F&amp;O participant file isn't available yet. It's usually published by 7–8 pm.</div>`; return; }
+    const n = (x) => x == null ? "—" : `<span class="${x >= 0 ? "up" : "down"}">${x >= 0 ? "+" : ""}${Number(x).toLocaleString("en-IN")}</span>`;
+    const fii = p.rows.find((r) => r.who === "FII");
+    const mood = !fii ? "" : fii.idxLongPct >= 60 ? "bullish (mostly long index futures)" : fii.idxLongPct <= 35 ? "bearish (heavily short index futures)" : fii.idxLongPct < 45 ? "cautious (more short than long)" : "neutral to mildly bullish";
+    out.innerHTML = `
+      ${fii ? `<div class="callout">FIIs are <b>${fii.idxLongPct}% long</b> in Nifty/Bank Nifty futures, which is <b>${mood}</b>.
+        ${fii.idxNetChange != null ? `They ${fii.idxNetChange >= 0 ? "added" : "cut"} <b>${Math.abs(fii.idxNetChange).toLocaleString("en-IN")}</b> net long contracts on ${dateLabel(p.date)}.` : ""}
+        FII positioning shapes the whole market's direction more than any single stock. When they're very short, rallies often fade, and short-covering can cause sharp up-moves.</div>` : ""}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Who</th><th>Index futures: % long</th><th>Index futures net</th><th>Change</th><th>Stock futures net</th><th>Change</th><th>Index options net (bullish +)</th><th>Change</th></tr></thead>
+        <tbody>${p.rows.map((r) => `<tr><td><b>${esc(r.who)}</b></td><td class="num">${r.idxLongPct}%</td><td class="num">${n(r.idxNet)}</td><td class="num">${n(r.idxNetChange)}</td><td class="num">${n(r.stkNet)}</td><td class="num">${n(r.stkNetChange)}</td><td class="num">${n(r.optNet)}</td><td class="num">${n(r.optNetChange)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="sm" style="margin-top:8px;line-height:1.6">Open interest in contracts at the close of ${dateLabel(p.date)}${p.prevDate ? `; change vs ${dateLabel(p.prevDate)}` : ""}. Source: NSE participant-wise open interest.
+        <b>Why no stock-by-stock FII/DII or mutual fund buying?</b> India doesn't publish it daily. NSE gives only the total FII and DII cash buying and selling each evening (shown on nseindia.com and most broker apps, and it blocks automated access). Mutual funds disclose holdings once a month, about 10 days after month-end, and shareholding patterns come quarterly. Bulk and block deals, in the 🤝 tab, are the only same-day stock-level clue.</div>`;
+  }
+
+  // Symbols for "🔭 Radar" in the stock list: bullish watchlist + today's live volume shocks.
+  async function radarUniverse() {
+    if (!radar) await loadRadar();
+    if (marketOpen() || !shocks) await loadShocks(true);
+    const syms = new Set([...(shocks?.shocks || []).filter((x) => x.isToday).map((x) => x.symbol), ...(radar?.watch || []).filter((w) => w.bias !== "bearish").map((w) => w.symbol)]);
+    return { stocks: [...syms].slice(0, 300).map((symbol) => names[symbol] || { symbol }) };
+  }
+  if (document.getElementById("radarBox").open) loadRadar();
   refreshLive();
 </script>
 </body>
