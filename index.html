@@ -261,6 +261,9 @@
       </select>
     </label>
     <label><input type="checkbox" id="hideExtended" onchange="render()" /> Hide extended (chasing) setups</label>
+    <label title="Only list signals where the UT Bot AND Supertrend on the next higher timeframe point the same way (e.g. 15m for a 5m signal, 1 week for a daily one)."><input type="checkbox" id="htfOnly" onchange="render()" /> Higher timeframe agrees</label>
+    <label title="Only list signals where price broke the 20-candle high (low for shorts), pulled back to that level and held it. Use Signal age 10+ candles, since a retest takes time."><input type="checkbox" id="retestOnly" onchange="render()" /> Breakout retest held</label>
+    <label title="Hide signals with a trap warning: false breakout, entry right after a spike, rejection wick, or a stop loss sitting where stop hunts happen."><input type="checkbox" id="hideTraps" onchange="render()" /> Hide trap warnings</label>
     <span><span class="pill" id="marketPill">Market closed</span> <span class="sm" id="liveInfo"></span></span>
   </div>
 
@@ -295,7 +298,8 @@
     <b>Volume column:</b> <b>RVOL</b> is today's volume so far compared with the average of the last 10 sessions at the same time of day (2× means twice as busy as usual). <b>Pressure</b> is the share of the last 20 candles' volume that traded on candles moving in the signal's direction.<br />
     <b>Momentum score (0–100)</b> blends ADX trend strength, RSI, the +DI/−DI spread and relative volume. <b>Extended</b> means price is more than 1.5×ATR from EMA 9, so you'd be chasing. Wait for a pullback into the entry zone. <b>Fading</b> means RSI is overstretched or the MACD histogram has weakened for 2 candles.<br />
     <b>Entry &amp; exit plan:</b> buy within the <b>entry zone</b> (signal close back toward EMA 9). The <b>stop loss</b> is the UT Bot trailing stop, widened to at least 1×ATR or 0.3% of price. At <b>Target 1</b> (1.5× risk), book half and move the stop to your entry price. Let the rest run to <b>Target 2</b> (3× risk).
-    The entry, stop and targets always come from the <b>signal candle</b>, so a signal from 5 candles ago keeps its original plan. <b>How long will it take?</b> Under each target, "usually ~N candles" is how long that target typically took on this stock's own past UT Bot signals on the same timeframe, with how often it was hit. On intraday timeframes, targets are meant for the same session. On 1 day the estimate is in trading days, and on 1 week in weeks. Square off anything still open by 3:15 pm.
+    The entry, stop and targets always come from the <b>signal candle</b>, so a signal from 5 candles ago keeps its original plan. <b>Trap filters:</b> each signal shows whether the <b>higher timeframe</b> agrees (UT Bot and Supertrend on e.g. 15m for a 5m signal, or 1 week for daily), the <b>breakout retest</b> state (price broke the 20-candle high/low, came back to it and held: the classic professional entry), and <b>trap warnings</b>. The warnings cover a <b>false breakout</b>, an entry <b>after a spike</b>, a <b>rejection wick</b>, and <b>stop-hunt risk</b> (the stop sits just inside the previous day's low/high, a swing level or a round number, where stops cluster). An ⓘ note marks a resistance level before Target 1. Hover any badge for details, and use the three checkboxes above the table to filter.
+    <b>How long will it take?</b> Under each target, "usually ~N candles" is how long that target typically took on this stock's own past UT Bot signals on the same timeframe, with how often it was hit. On intraday timeframes, targets are meant for the same session. On 1 day the estimate is in trading days, and on 1 week in weeks. Square off anything still open by 3:15 pm.
     <b>Live Status</b> follows each setup minute by minute on today's 1-minute candles: OPEN, T1 HIT, T2 HIT, SL HIT, or "exit at cost" after T1. If a minute touches both the stop and a target, the stop is assumed to have hit first.<br />
     <b>Disclaimer:</b> No indicator gives "exact" signals. These are rule-based setups, not investment advice. Prices come from Yahoo Finance and can be delayed by a few minutes. Always confirm on your broker's chart and size positions to your risk.
   </div>
@@ -484,6 +488,19 @@
     return `<div class="sm" title="${esc(tip)}">${n != null ? `usually ~${esc(candleSpan(n, tf))}` : "rarely reached"} · hit ${pct}%</div>`;
   }
 
+  // Higher-timeframe and breakout-retest badges.
+  function htfBadge(h, side) {
+    if (!h) return "";
+    const ok = h.ut === side && h.supertrend === side;
+    const tip = `${h.tf}: UT Bot ${h.ut || "?"}, Supertrend ${h.supertrend || "?"}`;
+    return `<div><span class="newsbadge ${ok ? "agree" : "clash"}" title="${esc(tip)}">${esc(h.tf)} ${ok ? "✓ agrees" : h.ut === side || h.supertrend === side ? "~ mixed" : "✗ against"}</span></div>`;
+  }
+  function retestBadge(r) {
+    if (!r) return "";
+    const cls = r.state === "held" ? "agree" : r.state === "failed" ? "clash" : "";
+    return `<div><span class="newsbadge ${cls}" style="${cls ? "" : "border:1px solid var(--line);color:var(--muted)"}" title="${esc(r.tip)}">${esc(r.label)}</span></div>`;
+  }
+
   function statusCell(s) {
     const L = live[s.symbol];
     const S = s.sinceSignal;
@@ -506,8 +523,13 @@
   function render(prevLtp = {}) {
     const sortBy = document.getElementById("sortBy").value;
     const hideExt = document.getElementById("hideExtended").checked;
+    const htfOnly = document.getElementById("htfOnly").checked;
+    const retestOnly = document.getElementById("retestOnly").checked;
+    const hideTraps = document.getElementById("hideTraps").checked;
     const rows = lastSignals
-      .filter((s) => (sideFilter === "ALL" || s.side === sideFilter) && !(hideExt && s.extended))
+      .filter((s) => (sideFilter === "ALL" || s.side === sideFilter) && !(hideExt && s.extended)
+        && !(htfOnly && !s.htf?.agrees) && !(retestOnly && s.retest?.state !== "held")
+        && !(hideTraps && (s.traps || []).some((x) => !x.minor)))
       .sort((a, b) => sortBy === "momentum" ? b.momentum - a.momentum
         : sortBy === "rvol" ? (b.rvol ?? 0) - (a.rvol ?? 0)
         : sortBy === "pnl" ? (pnlOf(b) ?? -1e9) - (pnlOf(a) ?? -1e9)
@@ -526,11 +548,12 @@
       const flags = [
         s.extended ? `<div class="warn" title="Price is more than 1.5×ATR away from EMA 9. Wait for a pullback into the entry zone.">⚠ extended</div>` : "",
         s.fading ? `<div class="warn" title="RSI overstretched or MACD histogram weakening for 2 candles.">⚠ momentum fading</div>` : "",
+        ...(s.traps || []).map((x) => `<div class="${x.minor ? "sm" : "warn"}" title="${esc(x.tip)}">${x.minor ? "ⓘ" : "⚠"} ${esc(x.label)}</div>`),
       ].join("");
       const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
         <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf)}</td>
-        <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}</td>
+        <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}${htfBadge(s.htf, s.side)}${retestBadge(s.retest)}</td>
         <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
           <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
           ${pnl != null ? `<div class="sm">vs entry: <span class="${pnl >= 0 ? "up" : "down"}">${pnl >= 0 ? "+" : ""}${fmt(pnl)}%</span></div>` : ""}</td>
@@ -658,6 +681,7 @@
           <span class="tg">Target 1 ₹${fmt(st.target1)}</span> (book 50%, then move stop to entry), <span class="tg">Target 2 ₹${fmt(st.target2)}</span>.
           Since the signal: <b>${esc(st.sinceSignal.status)}</b>${st.sinceSignal.status === "OPEN" ? `, price now ₹${fmt(st.currentPrice)}` : ""}.<br />
           ${st.timing && st.timing.trades >= 3 ? `<b>How long targets usually take here:</b> of this stock's last ${st.timing.trades} UT Bot signals on ${esc(tf)}, Target 1 was reached ${st.timing.t1HitPct}% of the time${st.timing.t1MedianCandles != null ? `, typically in ${esc(candleSpan(st.timing.t1MedianCandles, tf))}` : ""}. Target 2 was reached ${st.timing.t2HitPct}%${st.timing.t2MedianCandles != null ? `, typically in ${esc(candleSpan(st.timing.t2MedianCandles, tf))}` : ""}. The stop was hit first ${st.timing.slHitPct}% of the time.${INTRADAY(tf) ? " On intraday timeframes, targets are meant for the same session: anything open is squared off by 3:15 pm." : ""}<br />` : ""}
+          <b>Trap filters:</b> ${x.htf ? `higher timeframe ${esc(x.htf.tf)}: UT Bot ${esc(x.htf.ut)}, Supertrend ${esc(x.htf.supertrend)} (${x.htf.ut === x.side && x.htf.supertrend === x.side ? '<span class="up">agrees</span>' : '<span class="warn">does not fully agree</span>'}); ` : ""}breakout retest: ${esc(st.retest.label)} <span class="sm">(${esc(st.retest.tip)})</span>${st.traps.length ? `; ${st.traps.map((t) => `<span class="${t.minor ? "" : "warn"}">${t.minor ? "ⓘ" : "⚠"} ${esc(t.label)}</span> <span class="sm">(${esc(t.tip)})</span>`).join("; ")}` : "; no trap warnings"}.<br />
           Confirmations at the signal candle: <b>${st.score}/8</b> (${st.checks.map((c) => `${esc(c.name)} ${c.ok ? "✓" : "✗"}`).join(", ")}).` : ""}<br />
         ${listed ? `<span class="up">This stock appears in the scan with your current settings.</span>`
           : `<span class="warn">Not listed in the scan because ${reasons.join("; and ")}.</span> Raise "Signal age" or lower "Min confirmations" to include it.`}
