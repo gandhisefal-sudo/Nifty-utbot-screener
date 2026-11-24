@@ -67,6 +67,13 @@
     .lnk.news.mixed { background: #3a3315; color: #fde68a; border-color: #5c4f1a; }
     .lnk.news.quiet { color: var(--muted); }
     .newsfocus { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--accent); border-radius: 6px; font-size: 13px; }
+    .ac { position: relative; display: inline-block; }
+    .ac-list { position: absolute; z-index: 20; top: 100%; left: 0; min-width: 100%; width: max-content; max-width: min(460px, 90vw); max-height: 300px; overflow-y: auto; margin-top: 2px; background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    .ac-item { padding: 6px 10px; cursor: pointer; font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
+    .ac-item b { min-width: 90px; }
+    .ac-item span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ac-item.on, .ac-item:hover { background: #1e2a44; }
+    .ac-item mark { background: none; color: var(--accent); font-weight: 700; }
     @media (max-width: 760px) { .nitem { grid-template-columns: 1fr; } }
     .radar { border-color: #2b4a6b; }
     .radar .table-wrap { max-height: 560px; overflow-y: auto; }
@@ -107,7 +114,7 @@
     .checker { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
     .checker label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
     .checkrow { display: flex; gap: 6px; }
-    .checkrow input { width: 230px; text-transform: uppercase; }
+    .checkrow input { width: 260px; }
     .checkrow button { cursor: pointer; }
     #checkOut { flex: 1; min-width: 280px; line-height: 1.6; font-size: 13px; }
     #checkOut b { color: var(--text); }
@@ -202,7 +209,9 @@
   <div class="checker">
     <label>Check a stock (compare with your TradingView chart)
       <span class="checkrow">
-        <input type="text" id="checkSym" placeholder="NSE symbol, e.g. NESTLEIND" onkeydown="if(event.key==='Enter')checkStock()" />
+        <span class="ac"><input type="text" id="checkSym" placeholder="Company name or NSE symbol, e.g. Nestle" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="checkList" aria-expanded="false"
+          onfocus="loadSymbolList()" oninput="suggestSymbols()" onkeydown="acKey(event)" onblur="setTimeout(hideSuggest, 150)" />
+          <div class="ac-list" id="checkList" role="listbox" hidden></div></span>
         <button onclick="checkStock()">Check</button>
       </span>
     </label>
@@ -327,6 +336,7 @@
       <tr><td>2 / 5</td><td>613 · 52% · +0.12R</td><td>1366 · 47% · +0.10R</td></tr>
       <tr><td>1.5 / 14</td><td>779 · 51% · +0.18R</td><td>2013 · 42% · +0.04R</td></tr>
       <tr><td>1 / 10 (old default, TradingView default)</td><td>1105 · 46% · +0.14R</td><td>3302 · 43% · +0.06R</td></tr>
+      <tr><td>2 / 1 (popular on YouTube, usually with Heikin Ashi candles)</td><td>719 · 53% · +0.06R</td><td>1792 · 48% · +0.07R</td></tr>
       <tr><td>1 / 1</td><td>1172 · 50% · +0.12R</td><td>3654 · 45% · +0.09R</td></tr>
       <tr><td>3 / 10</td><td>812 · 51% · +0.08R</td><td>1695 · 49% · +0.05R</td></tr>
     </table>
@@ -729,7 +739,76 @@
     else await ensureNews();
   }
 
+  // ---- Company name / symbol search for "Check a stock" ----
+  let symbolList = null, symbolListPromise = null, acMatches = [], acIndex = -1;
+  const acNorm = (x) => (x || "").toLowerCase().replace(/&/g, " and ").replace(/\b(limited|ltd)\b\.?/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  function loadSymbolList() {
+    if (symbolList || symbolListPromise) return symbolListPromise;
+    return symbolListPromise = fetch("/api/universe?index=allEq").then((r) => r.json()).then((r) => {
+      const map = new Map((r.stocks || []).map((x) => [x.symbol, x]));
+      Object.values(names).forEach((x) => { if (x?.symbol && !map.has(x.symbol)) map.set(x.symbol, x); });
+      symbolList = [...map.values()].map((x) => ({ ...x, s: x.symbol.toLowerCase(), n: acNorm(x.name) }));
+      if (document.activeElement?.id === "checkSym") suggestSymbols();
+    }).catch(() => { symbolListPromise = null; });
+  }
+  function findSymbols(q, limit = 10) {
+    const qs = q.trim().toLowerCase().replace(/\.ns$/, ""), qn = acNorm(q);
+    if (!qs || !symbolList) return [];
+    const scored = [];
+    for (const x of symbolList) {
+      const r = x.s === qs ? 0 : x.s.startsWith(qs) ? 1 : x.n.startsWith(qn) ? 2 : qn && (" " + x.n).includes(" " + qn) ? 3 : qn.length > 2 && x.n.includes(qn) ? 4 : x.s.includes(qs) ? 5 : -1;
+      if (r >= 0) scored.push([r, x]);
+    }
+    return scored.sort((a, b) => a[0] - b[0] || a[1].symbol.length - b[1].symbol.length || a[1].symbol.localeCompare(b[1].symbol)).slice(0, limit).map((z) => z[1]);
+  }
+  function highlight(text, q) {
+    const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+    return i < 0 ? esc(text) : esc(text.slice(0, i)) + "<mark>" + esc(text.slice(i, i + q.length)) + "</mark>" + esc(text.slice(i + q.length));
+  }
+  function suggestSymbols() {
+    const input = document.getElementById("checkSym"), list = document.getElementById("checkList");
+    const q = input.value.trim();
+    if (!symbolList) { if (q) { list.innerHTML = `<div class="ac-item"><span>Loading the NSE stock list…</span></div>`; list.hidden = false; } return; }
+    acMatches = findSymbols(q); acIndex = acMatches.length ? 0 : -1;
+    if (!q) return hideSuggest();
+    list.innerHTML = acMatches.length
+      ? acMatches.map((x, i) => `<div class="ac-item ${i === acIndex ? "on" : ""}" role="option" onmousedown="event.preventDefault();pickSymbol(${i})"><b>${highlight(x.symbol, q)}</b><span>${highlight(x.name || "", q)}</span></div>`).join("")
+      : `<div class="ac-item"><span>No NSE stock matches "${esc(q)}"</span></div>`;
+    list.hidden = false; input.setAttribute("aria-expanded", "true");
+  }
+  function hideSuggest() {
+    document.getElementById("checkList").hidden = true;
+    document.getElementById("checkSym").setAttribute("aria-expanded", "false");
+    acIndex = -1;
+  }
+  function pickSymbol(i) {
+    const x = acMatches[i]; if (!x) return;
+    document.getElementById("checkSym").value = x.symbol;
+    names[x.symbol] = names[x.symbol] || { symbol: x.symbol, name: x.name };
+    hideSuggest(); checkStock();
+  }
+  function acKey(e) {
+    const list = document.getElementById("checkList"), open = !list.hidden && acMatches.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!open) return suggestSymbols();
+      e.preventDefault();
+      acIndex = (acIndex + (e.key === "ArrowDown" ? 1 : -1) + acMatches.length) % acMatches.length;
+      [...list.children].forEach((el, i) => el.classList.toggle("on", i === acIndex));
+      list.children[acIndex]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && acIndex >= 0) pickSymbol(acIndex); else { hideSuggest(); checkStock(); }
+    } else if (e.key === "Escape") hideSuggest();
+  }
+
   async function checkStock() {
+    hideSuggest();
+    const typed = document.getElementById("checkSym").value.trim();
+    // A company name typed without picking from the list: use the best match.
+    if (typed && symbolList && !symbolList.some((x) => x.s === typed.toLowerCase().replace(/\.ns$/, ""))) {
+      const best = findSymbols(typed, 1)[0];
+      if (best) document.getElementById("checkSym").value = best.symbol;
+    }
     const sym = document.getElementById("checkSym").value.trim().toUpperCase().replace(/\.NS$/, "");
     const out = document.getElementById("checkOut");
     if (!sym) return;
