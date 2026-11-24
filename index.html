@@ -61,6 +61,19 @@
     .newsbadge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; margin-top: 4px; display: inline-block; cursor: help; }
     .newsbadge.agree { background: #0d2a1b; color: #86efac; border: 1px solid #1f6f46; }
     .newsbadge.clash { background: #3a3315; color: #fde68a; border: 1px solid #5c4f1a; }
+    .lnk.news { cursor: pointer; background: transparent; font-family: inherit; }
+    .lnk.news.pos { background: var(--buy-bg); color: var(--buy); border-color: #1f6f46; }
+    .lnk.news.neg { background: var(--sell-bg); color: var(--sell); border-color: #7a2a2a; }
+    .lnk.news.mixed { background: #3a3315; color: #fde68a; border-color: #5c4f1a; }
+    .lnk.news.quiet { color: var(--muted); }
+    .newsfocus { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--accent); border-radius: 6px; font-size: 13px; }
+    .ac { position: relative; display: inline-block; }
+    .ac-list { position: absolute; z-index: 20; top: 100%; left: 0; min-width: 100%; width: max-content; max-width: min(460px, 90vw); max-height: 300px; overflow-y: auto; margin-top: 2px; background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    .ac-item { padding: 6px 10px; cursor: pointer; font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
+    .ac-item b { min-width: 90px; }
+    .ac-item span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ac-item.on, .ac-item:hover { background: #1e2a44; }
+    .ac-item mark { background: none; color: var(--accent); font-weight: 700; }
     @media (max-width: 760px) { .nitem { grid-template-columns: 1fr; } }
     .radar { border-color: #2b4a6b; }
     .radar .table-wrap { max-height: 560px; overflow-y: auto; }
@@ -101,7 +114,7 @@
     .checker { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
     .checker label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
     .checkrow { display: flex; gap: 6px; }
-    .checkrow input { width: 230px; text-transform: uppercase; }
+    .checkrow input { width: 260px; }
     .checkrow button { cursor: pointer; }
     #checkOut { flex: 1; min-width: 280px; line-height: 1.6; font-size: 13px; }
     #checkOut b { color: var(--text); }
@@ -165,8 +178,9 @@
         </optgroup>
       </select>
     </label>
-    <label>UT Key Value <input type="number" id="keyValue" value="1" step="0.5" min="0.5" /></label>
-    <label>UT ATR Period <input type="number" id="atrPeriod" value="10" min="1" /></label>
+    <label title="Recommended: 2 (tested best on 5m and 15m). Higher = fewer, steadier signals; lower = more, earlier but noisier signals.">UT Key Value <input type="number" id="keyValue" value="2" step="0.5" min="0.5" onchange="saveUtSettings()" /></label>
+    <label title="Recommended: 14. How many candles the ATR (volatility) is averaged over.">UT ATR Period <input type="number" id="atrPeriod" value="14" min="1" onchange="saveUtSettings()" /></label>
+    <span class="sm" id="utReset"></span>
     <label>Min confirmations
       <select id="minConfirm" onchange="rescanIfShown()">
         <option value="5">5 of 8</option>
@@ -195,7 +209,9 @@
   <div class="checker">
     <label>Check a stock (compare with your TradingView chart)
       <span class="checkrow">
-        <input type="text" id="checkSym" placeholder="NSE symbol, e.g. NESTLEIND" onkeydown="if(event.key==='Enter')checkStock()" />
+        <span class="ac"><input type="text" id="checkSym" placeholder="Company name or NSE symbol, e.g. Nestle" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="checkList" aria-expanded="false"
+          onfocus="loadSymbolList()" oninput="suggestSymbols()" onkeydown="acKey(event)" onblur="setTimeout(hideSuggest, 150)" />
+          <div class="ac-list" id="checkList" role="listbox" hidden></div></span>
         <button onclick="checkStock()">Check</button>
       </span>
     </label>
@@ -264,6 +280,7 @@
     <label title="Only list signals where the UT Bot AND Supertrend on the next higher timeframe point the same way (e.g. 15m for a 5m signal, 1 week for a daily one)."><input type="checkbox" id="htfOnly" onchange="render()" /> Higher timeframe agrees</label>
     <label title="Only list signals where price broke the 20-candle high (low for shorts), pulled back to that level and held it. Use Signal age 10+ candles, since a retest takes time."><input type="checkbox" id="retestOnly" onchange="render()" /> Breakout retest held</label>
     <label title="Hide signals with a trap warning: false breakout, entry right after a spike, rejection wick, or a stop loss sitting where stop hunts happen."><input type="checkbox" id="hideTraps" onchange="render()" /> Hide trap warnings</label>
+    <label title="Colours the 📰 News button on each stock: green for positive news, red for negative, yellow for mixed. Click the button to see that stock's headlines."><input type="checkbox" id="newsIndicator" onchange="toggleNewsIndicator(this.checked)" /> 📰 News indicator</label>
     <span><span class="pill" id="marketPill">Market closed</span> <span class="sm" id="liveInfo"></span></span>
   </div>
 
@@ -284,7 +301,7 @@
     Signals from candles that start before 9:30 are flagged <span class="warn">⚠ opening candle</span>. Those candles carry the overnight gap and the opening rush, so volume and VWAP look extreme and many signals fail.
     A practical routine is to wait out the first 15 minutes, then take 5m signals from about <b>9:30–9:45</b> onward, using the 15m signal (first one at 9:30) as the trend filter. Avoid new entries after about 2:45 pm, and square off by 3:15 pm.<br />
     <b>Why TradingView shows a signal the scanner doesn't:</b> TradingView keeps every past BUY/SELL label on the chart, so a buy from two weeks ago is still visible. The scanner, by default, lists only <b>fresh</b> flips from the last 3 candles that also pass your confirmation level, because an old signal is usually no longer a good entry. Use <b>"Check a stock"</b> to see any stock's current UT Bot state and signal date, or raise <b>"Signal age"</b> to list older signals.<br />
-    <b>Matching TradingView:</b> the UT Bot, Supertrend, VWAP, EMA, RSI and MACD calculations follow TradingView's formulas, and candles are anchored at 9:15 IST like TradingView's NSE charts. With the same settings and "Closed candles only" ticked, signals should line up with the "UT Bot Alerts" indicator on the same timeframe. <b>Check your indicator's settings:</b> TradingView shows them next to the name, so "UT Bot Alerts 2 1" means Key Value 2, ATR Period 1. Enter the same two numbers here. The tool's default is 1 and 10.
+    <b>Matching TradingView:</b> the UT Bot, Supertrend, VWAP, EMA, RSI and MACD calculations follow TradingView's formulas, and candles are anchored at 9:15 IST like TradingView's NSE charts. With the same settings and "Closed candles only" ticked, signals should line up with the "UT Bot Alerts" indicator on the same timeframe. <b>Check your indicator's settings:</b> TradingView shows them next to the name, so "UT Bot Alerts 2 14" means Key Value 2, ATR Period 14. Enter the same two numbers here. The tool's default is <b>2 and 14</b> (see the settings test below). TradingView's own UT Bot default is 1 and 10, so set your chart indicator to 2 / 14 too, or change the values here to match your chart.
     Yahoo adds NSE's official closing price as an extra flat candle at about 3:28 pm. The tool removes it, as TradingView does, so the last candle of the day closes at the last traded price.
     Small differences can still happen. Prices here come from Yahoo Finance, not NSE's own feed, so a candle's high/low can differ by a few paise. A price sitting right on the stop line can then flip one candle earlier or later. Always confirm on the chart before trading.
   </div>
@@ -312,12 +329,40 @@
       <tr><td>15 min</td><td>855</td><td>48%</td><td>+0.13R</td></tr>
       <tr><td>"Extended" setups only</td><td>76 / 89</td><td>37% / 43%</td><td>−0.10R / −0.05R</td></tr>
     </table>
+    <b>Which UT Bot settings work best? (replay test, Nifty 100, about one month to 24 Nov 2026, same rules as above)</b>
+    <table>
+      <tr><th>Key Value / ATR Period</th><th>15 min: trades · winners · avg</th><th>5 min: trades · winners · avg</th></tr>
+      <tr><td><b>2 / 14 (default)</b></td><td>638 · 53% · <b>+0.18R</b></td><td>1500 · 46% · <b>+0.09R</b></td></tr>
+      <tr><td>2 / 5</td><td>613 · 52% · +0.12R</td><td>1366 · 47% · +0.10R</td></tr>
+      <tr><td>1.5 / 14</td><td>779 · 51% · +0.18R</td><td>2013 · 42% · +0.04R</td></tr>
+      <tr><td>1 / 10 (old default, TradingView default)</td><td>1105 · 46% · +0.14R</td><td>3302 · 43% · +0.06R</td></tr>
+      <tr><td>2 / 1 (popular on YouTube, usually with Heikin Ashi candles)</td><td>719 · 53% · +0.06R</td><td>1792 · 48% · +0.07R</td></tr>
+      <tr><td>1 / 1</td><td>1172 · 50% · +0.12R</td><td>3654 · 45% · +0.09R</td></tr>
+      <tr><td>3 / 10</td><td>812 · 51% · +0.08R</td><td>1695 · 49% · +0.05R</td></tr>
+    </table>
+    Key Value 2 with ATR 14 was in the top group on both timeframes, and the settings around it also did well. Compared with 1 / 10 it gave roughly 40–55% fewer signals, with a higher win rate and a better average result. The edge is modest and comes from one month of data, so it can change as market conditions change. Daily and weekly timeframes weren't tested.<br />
     R = the amount risked per trade (entry to stop loss). Brokerage, STT and slippage typically cost around 0.1–0.3R per intraday trade, so these results are roughly breakeven after costs. Higher scores did not reliably do better in this sample. Treat the scanner as a shortlist of candidates, not a money machine. Skipping extended setups and favouring the 15-minute timeframe helped the most.
   </div>
 </div>
 
 <script>
   const BATCH = 50, CONCURRENCY = 5;
+  // ---- UT Bot settings: recommended defaults, user's own values remembered in this browser ----
+  const UT_DEFAULT = { keyValue: "2", atrPeriod: "14" };
+  function saveUtSettings() {
+    const kv = document.getElementById("keyValue").value, ap = document.getElementById("atrPeriod").value;
+    localStorage.setItem("utSettings", JSON.stringify({ keyValue: kv, atrPeriod: ap }));
+    const custom = kv !== UT_DEFAULT.keyValue || ap !== UT_DEFAULT.atrPeriod;
+    document.getElementById("utReset").innerHTML = custom
+      ? `<a href="#" onclick="resetUtSettings();return false;" title="Go back to the tested defaults: Key Value 2, ATR Period 14">↺ Reset to recommended (2 / 14)</a>`
+      : `✓ recommended`;
+    rescanIfShown();
+  }
+  function resetUtSettings() {
+    document.getElementById("keyValue").value = UT_DEFAULT.keyValue;
+    document.getElementById("atrPeriod").value = UT_DEFAULT.atrPeriod;
+    saveUtSettings();
+  }
   // Big lists are re-scanned less often to stay under Yahoo Finance's rate limit.
   const autoEvery = () => (["nonNifty", "allEq"].includes(document.getElementById("index").value) ? 180000 : 60000);
   const liveEvery = () => (lastSignals.length > 100 ? 30000 : 15000);
@@ -357,7 +402,7 @@
   const kiteUrl = (sym) => kiteTokens[sym]
     ? `https://kite.zerodha.com/chart/ext/tvc/NSE/${encodeURIComponent(sym)}/${kiteTokens[sym]}`
     : "https://kite.zerodha.com/";
-  const chartLinks = (sym, tf) => `<div class="links">
+  const chartLinks = (sym, tf, extra = "") => `<div class="links">${extra}
       <a class="lnk tv" href="${tvUrl(sym, tf)}" target="_blank" rel="noopener" title="Open ${esc(sym)} on TradingView (${esc(tf)})">TradingView ↗</a>
       <a class="lnk kite" href="${kiteUrl(sym)}" target="_blank" rel="noopener" title="${kiteTokens[sym] ? `Open ${esc(sym)} chart in Zerodha Kite (log in to Kite first)` : "Kite chart link not available yet; opens Kite"}">Kite ↗</a>
     </div>`;
@@ -423,6 +468,7 @@
       ].join("");
       render();
       refreshLive();
+      if (newsIndicatorOn()) ensureNews();
     } catch (err) {
       statusEl.textContent = "Scan failed. Please try again in a moment.";
     } finally {
@@ -552,7 +598,7 @@
       ].join("");
       const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
-        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf)}</td>
+        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf, newsButton(s.symbol))}</td>
         <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}${htfBadge(s.htf, s.side)}${retestBadge(s.retest)}</td>
         <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
           <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
@@ -574,7 +620,7 @@
   // Shows one stock's current UT Bot state, the date of its last flip and the setup,
   // whatever the signal-age / confirmation filters say.
   // ---- News sentiment ----
-  let newsItems = [], newsLoaded = false, newsFilter = "all", newsQuotes = {};
+  let newsItems = [], newsLoaded = false, newsFilter = "all", newsQuotes = {}, newsSymbol = null, newsPromise = null, newsAt = 0;
   document.querySelectorAll("[data-ns]").forEach((b) => b.onclick = () => {
     document.querySelectorAll("[data-ns]").forEach((x) => x.classList.toggle("on", x === b));
     newsFilter = b.dataset.ns; renderNews();
@@ -583,14 +629,22 @@
   const CATS = { results: "Results", order_win: "Order win", deal_or_merger: "Deal / merger", dividend_buyback_bonus: "Dividend / buyback / bonus", rating_or_target: "Broker rating", management: "Management", regulatory_or_legal: "Regulatory / legal", fundraise_or_stake: "Fundraise / stake", product_or_expansion: "Expansion", macro_or_sector: "Sector / macro", routine_filing: "Routine filing", other: "Other" };
   const newsFor = (sym) => newsItems.filter((n) => n.symbol === sym && n.sentiment !== "neutral" && n.impact !== "low");
 
-  async function loadNews(force) {
+  // Loads news once (or again when forced); concurrent callers share one request.
+  function ensureNews(force) {
+    if (newsPromise && !force) return newsPromise;
+    // Re-fetch after 10 minutes (the server refreshes on the same cadence), e.g. during auto-scan.
+    if (newsLoaded && !force && Date.now() - newsAt < 600e3) return Promise.resolve();
+    return newsPromise = loadNewsNow().finally(() => { newsPromise = null; if (lastSignals.length) render(); });
+  }
+  function loadNews(force) { return ensureNews(force); }
+  async function loadNewsNow() {
     newsLoaded = true;
     const list = document.getElementById("newsList");
     list.innerHTML = `<div class="sm">Loading and rating the latest news… (up to 30 seconds)</div>`;
     try {
       const r = await (await fetch("/api/news")).json();
       if (r.error) { list.innerHTML = `<div class="warn">${esc(r.error)}</div>`; newsLoaded = false; return; }
-      newsItems = r.news || [];
+      newsItems = r.news || []; newsAt = Date.now();
       document.getElementById("newsMeta").textContent = `· ${newsItems.filter((n) => n.symbol && n.sentiment !== "neutral").length} stock stories · updated ${new Date(r.updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })} IST`;
       renderNews();
       if (lastSignals.length) render();
@@ -612,12 +666,15 @@
     const hideLow = document.getElementById("newsHideLow").checked;
     const rank = { high: 0, medium: 1, low: 2 };
     const rows = newsItems
-      .filter((n) => (!stocksOnly || n.symbol) && (!hideLow || (n.impact !== "low" && n.category !== "routine_filing")))
-      .filter((n) => newsFilter === "all" ? n.sentiment !== "neutral" || !stocksOnly : n.sentiment === newsFilter)
+      .filter((n) => newsSymbol ? n.symbol === newsSymbol : (!stocksOnly || n.symbol) && (!hideLow || (n.impact !== "low" && n.category !== "routine_filing")))
+      .filter((n) => newsFilter === "all" ? newsSymbol || n.sentiment !== "neutral" || !stocksOnly : n.sentiment === newsFilter)
       .sort((a, b) => rank[a.impact] - rank[b.impact] || (b.time || 0) - (a.time || 0));
     const list = document.getElementById("newsList");
-    if (!rows.length) { list.innerHTML = `<div class="sm">No matching news right now. Untick the filters to see more.</div>`; return; }
-    list.innerHTML = rows.map((n) => {
+    const focus = newsSymbol ? `<div class="newsfocus"><span>Showing news for <b>${esc(newsSymbol)}</b>${names[newsSymbol]?.name ? ` · ${esc(names[newsSymbol].name)}` : ""}</span>
+      <a class="lnk" href="https://news.google.com/search?q=${encodeURIComponent(`${names[newsSymbol]?.name || newsSymbol} share`)}&hl=en-IN&gl=IN&ceid=IN:en" target="_blank" rel="noopener">Search Google News ↗</a>
+      <button onclick="showStockNews(null)">Show all stocks</button></div>` : "";
+    if (!rows.length) { list.innerHTML = focus + `<div class="sm">${newsSymbol ? `No ${newsFilter === "all" ? "" : newsFilter + " "}news for ${esc(newsSymbol)} in today's feeds.` : "No matching news right now. Untick the filters to see more."}</div>`; return; }
+    list.innerHTML = focus + rows.map((n) => {
       const q = n.symbol && newsQuotes[n.symbol];
       return `<div class="nitem">
         <div>${n.symbol ? `<strong>${esc(n.symbol)}</strong>` : `<span class="sm">${esc(n.company || "Market")}</span>`}
@@ -634,6 +691,7 @@
 
   // Badge on scan rows when today's news points the same way as the signal (or the opposite way).
   function newsBadge(s) {
+    if (!newsIndicatorOn()) return "";
     const items = newsFor(s.symbol);
     if (!items.length) return "";
     const want = s.side === "BUY" ? "positive" : "negative";
@@ -645,7 +703,112 @@
       : `<div><span class="newsbadge clash" title="${tip}">📰 news against signal</span></div>`;
   }
 
+  // ---- News button on each scanned stock ----
+  const newsIndicatorOn = () => document.getElementById("newsIndicator").checked;
+  document.getElementById("newsIndicator").checked = localStorage.getItem("newsIndicator") !== "0"; // on by default
+  function toggleNewsIndicator(on) {
+    localStorage.setItem("newsIndicator", on ? "1" : "0");
+    if (on && lastSignals.length) ensureNews();
+    if (lastSignals.length) render();
+  }
+  function newsButton(sym) {
+    const label = "📰 News";
+    if (!newsIndicatorOn()) return `<button class="lnk news" onclick="showStockNews('${esc(sym)}')" title="Show news for ${esc(sym)}">${label}</button>`;
+    if (newsPromise) return `<button class="lnk news quiet" onclick="showStockNews('${esc(sym)}')" title="Loading news…">${label} …</button>`;
+    if (!newsLoaded) return `<button class="lnk news quiet" onclick="showStockNews('${esc(sym)}')" title="News isn't loaded. Click to load it.">${label}</button>`;
+    const items = newsFor(sym);
+    const all = newsItems.filter((n) => n.symbol === sym);
+    const pos = items.filter((n) => n.sentiment === "positive").length, neg = items.filter((n) => n.sentiment === "negative").length;
+    const cls = pos && neg ? "mixed" : pos ? "pos" : neg ? "neg" : "quiet";
+    const tip = items.length
+      ? items.slice(0, 3).map((n) => `${n.sentiment.toUpperCase()} (${n.impact}): ${n.title}`).join("\n")
+      : all.length ? `${all.length} minor/neutral headline${all.length > 1 ? "s" : ""}` : "No news in today's feeds";
+    const mark = cls === "pos" ? " ▲" : cls === "neg" ? " ▼" : cls === "mixed" ? " ±" : "";
+    return `<button class="lnk news ${cls}" onclick="showStockNews('${esc(sym)}')" title="${esc(tip)}">${label}${mark}${items.length ? ` ${items.length}` : ""}</button>`;
+  }
+  async function showStockNews(sym) {
+    newsSymbol = sym;
+    const box = document.getElementById("newsBox");
+    if (sym) {
+      newsFilter = "all";
+      document.querySelectorAll("[data-ns]").forEach((x) => x.classList.toggle("on", x.dataset.ns === "all"));
+      box.open = true; // ontoggle loads the news if needed
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (newsLoaded && !newsPromise) renderNews();
+    else await ensureNews();
+  }
+
+  // ---- Company name / symbol search for "Check a stock" ----
+  let symbolList = null, symbolListPromise = null, acMatches = [], acIndex = -1;
+  const acNorm = (x) => (x || "").toLowerCase().replace(/&/g, " and ").replace(/\b(limited|ltd)\b\.?/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  function loadSymbolList() {
+    if (symbolList || symbolListPromise) return symbolListPromise;
+    return symbolListPromise = fetch("/api/universe?index=allEq").then((r) => r.json()).then((r) => {
+      const map = new Map((r.stocks || []).map((x) => [x.symbol, x]));
+      Object.values(names).forEach((x) => { if (x?.symbol && !map.has(x.symbol)) map.set(x.symbol, x); });
+      symbolList = [...map.values()].map((x) => ({ ...x, s: x.symbol.toLowerCase(), n: acNorm(x.name) }));
+      if (document.activeElement?.id === "checkSym") suggestSymbols();
+    }).catch(() => { symbolListPromise = null; });
+  }
+  function findSymbols(q, limit = 10) {
+    const qs = q.trim().toLowerCase().replace(/\.ns$/, ""), qn = acNorm(q);
+    if (!qs || !symbolList) return [];
+    const scored = [];
+    for (const x of symbolList) {
+      const r = x.s === qs ? 0 : x.s.startsWith(qs) ? 1 : x.n.startsWith(qn) ? 2 : qn && (" " + x.n).includes(" " + qn) ? 3 : qn.length > 2 && x.n.includes(qn) ? 4 : x.s.includes(qs) ? 5 : -1;
+      if (r >= 0) scored.push([r, x]);
+    }
+    return scored.sort((a, b) => a[0] - b[0] || a[1].symbol.length - b[1].symbol.length || a[1].symbol.localeCompare(b[1].symbol)).slice(0, limit).map((z) => z[1]);
+  }
+  function highlight(text, q) {
+    const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+    return i < 0 ? esc(text) : esc(text.slice(0, i)) + "<mark>" + esc(text.slice(i, i + q.length)) + "</mark>" + esc(text.slice(i + q.length));
+  }
+  function suggestSymbols() {
+    const input = document.getElementById("checkSym"), list = document.getElementById("checkList");
+    const q = input.value.trim();
+    if (!symbolList) { if (q) { list.innerHTML = `<div class="ac-item"><span>Loading the NSE stock list…</span></div>`; list.hidden = false; } return; }
+    acMatches = findSymbols(q); acIndex = acMatches.length ? 0 : -1;
+    if (!q) return hideSuggest();
+    list.innerHTML = acMatches.length
+      ? acMatches.map((x, i) => `<div class="ac-item ${i === acIndex ? "on" : ""}" role="option" onmousedown="event.preventDefault();pickSymbol(${i})"><b>${highlight(x.symbol, q)}</b><span>${highlight(x.name || "", q)}</span></div>`).join("")
+      : `<div class="ac-item"><span>No NSE stock matches "${esc(q)}"</span></div>`;
+    list.hidden = false; input.setAttribute("aria-expanded", "true");
+  }
+  function hideSuggest() {
+    document.getElementById("checkList").hidden = true;
+    document.getElementById("checkSym").setAttribute("aria-expanded", "false");
+    acIndex = -1;
+  }
+  function pickSymbol(i) {
+    const x = acMatches[i]; if (!x) return;
+    document.getElementById("checkSym").value = x.symbol;
+    names[x.symbol] = names[x.symbol] || { symbol: x.symbol, name: x.name };
+    hideSuggest(); checkStock();
+  }
+  function acKey(e) {
+    const list = document.getElementById("checkList"), open = !list.hidden && acMatches.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!open) return suggestSymbols();
+      e.preventDefault();
+      acIndex = (acIndex + (e.key === "ArrowDown" ? 1 : -1) + acMatches.length) % acMatches.length;
+      [...list.children].forEach((el, i) => el.classList.toggle("on", i === acIndex));
+      list.children[acIndex]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (open && acIndex >= 0) pickSymbol(acIndex); else { hideSuggest(); checkStock(); }
+    } else if (e.key === "Escape") hideSuggest();
+  }
+
   async function checkStock() {
+    hideSuggest();
+    const typed = document.getElementById("checkSym").value.trim();
+    // A company name typed without picking from the list: use the best match.
+    if (typed && symbolList && !symbolList.some((x) => x.s === typed.toLowerCase().replace(/\.ns$/, ""))) {
+      const best = findSymbols(typed, 1)[0];
+      if (best) document.getElementById("checkSym").value = best.symbol;
+    }
     const sym = document.getElementById("checkSym").value.trim().toUpperCase().replace(/\.NS$/, "");
     const out = document.getElementById("checkOut");
     if (!sym) return;
@@ -874,6 +1037,14 @@
   }
   if (document.getElementById("radarBox").open) loadRadar();
   refreshLive();
+  // Restore this browser's UT Bot settings (falls back to the recommended 2 / 14).
+  (() => {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("utSettings")) || {}; } catch {}
+    document.getElementById("keyValue").value = saved.keyValue || UT_DEFAULT.keyValue;
+    document.getElementById("atrPeriod").value = saved.atrPeriod || UT_DEFAULT.atrPeriod;
+    saveUtSettings();
+  })();
 </script>
 </body>
 </html>

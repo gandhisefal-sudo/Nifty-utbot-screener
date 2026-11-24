@@ -28,8 +28,8 @@ export default async (req) => {
   const p = new URL(req.url).searchParams;
   const interval = TIMEFRAMES[p.get("interval")] ? p.get("interval") : "5m";
   const confirmedOnly = p.get("live") !== "1";
-  const keyValue = Math.min(Math.max(parseFloat(p.get("keyValue")) || 1, 0.1), 10);
-  const atrPeriod = Math.min(Math.max(parseInt(p.get("atrPeriod"), 10) || 10, 1), 100);
+  const keyValue = Math.min(Math.max(parseFloat(p.get("keyValue")) || 2, 0.1), 10);
+  const atrPeriod = Math.min(Math.max(parseInt(p.get("atrPeriod"), 10) || 14, 1), 100);
   const mc = parseInt(p.get("minConfirm"), 10);
   const minConfirm = Number.isNaN(mc) ? 6 : Math.min(Math.max(mc, 0), 8);
   // How many candles back a UT Bot flip may be and still count as a signal (default: last 3).
