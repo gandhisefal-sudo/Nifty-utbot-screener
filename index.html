@@ -61,6 +61,12 @@
     .newsbadge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; margin-top: 4px; display: inline-block; cursor: help; }
     .newsbadge.agree { background: #0d2a1b; color: #86efac; border: 1px solid #1f6f46; }
     .newsbadge.clash { background: #3a3315; color: #fde68a; border: 1px solid #5c4f1a; }
+    .lnk.news { cursor: pointer; background: transparent; font-family: inherit; }
+    .lnk.news.pos { background: var(--buy-bg); color: var(--buy); border-color: #1f6f46; }
+    .lnk.news.neg { background: var(--sell-bg); color: var(--sell); border-color: #7a2a2a; }
+    .lnk.news.mixed { background: #3a3315; color: #fde68a; border-color: #5c4f1a; }
+    .lnk.news.quiet { color: var(--muted); }
+    .newsfocus { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--accent); border-radius: 6px; font-size: 13px; }
     @media (max-width: 760px) { .nitem { grid-template-columns: 1fr; } }
     .radar { border-color: #2b4a6b; }
     .radar .table-wrap { max-height: 560px; overflow-y: auto; }
@@ -264,6 +270,7 @@
     <label title="Only list signals where the UT Bot AND Supertrend on the next higher timeframe point the same way (e.g. 15m for a 5m signal, 1 week for a daily one)."><input type="checkbox" id="htfOnly" onchange="render()" /> Higher timeframe agrees</label>
     <label title="Only list signals where price broke the 20-candle high (low for shorts), pulled back to that level and held it. Use Signal age 10+ candles, since a retest takes time."><input type="checkbox" id="retestOnly" onchange="render()" /> Breakout retest held</label>
     <label title="Hide signals with a trap warning: false breakout, entry right after a spike, rejection wick, or a stop loss sitting where stop hunts happen."><input type="checkbox" id="hideTraps" onchange="render()" /> Hide trap warnings</label>
+    <label title="Colours the 📰 News button on each stock: green for positive news, red for negative, yellow for mixed. Click the button to see that stock's headlines."><input type="checkbox" id="newsIndicator" onchange="toggleNewsIndicator(this.checked)" /> 📰 News indicator</label>
     <span><span class="pill" id="marketPill">Market closed</span> <span class="sm" id="liveInfo"></span></span>
   </div>
 
@@ -357,7 +364,7 @@
   const kiteUrl = (sym) => kiteTokens[sym]
     ? `https://kite.zerodha.com/chart/ext/tvc/NSE/${encodeURIComponent(sym)}/${kiteTokens[sym]}`
     : "https://kite.zerodha.com/";
-  const chartLinks = (sym, tf) => `<div class="links">
+  const chartLinks = (sym, tf, extra = "") => `<div class="links">${extra}
       <a class="lnk tv" href="${tvUrl(sym, tf)}" target="_blank" rel="noopener" title="Open ${esc(sym)} on TradingView (${esc(tf)})">TradingView ↗</a>
       <a class="lnk kite" href="${kiteUrl(sym)}" target="_blank" rel="noopener" title="${kiteTokens[sym] ? `Open ${esc(sym)} chart in Zerodha Kite (log in to Kite first)` : "Kite chart link not available yet; opens Kite"}">Kite ↗</a>
     </div>`;
@@ -423,6 +430,7 @@
       ].join("");
       render();
       refreshLive();
+      if (newsIndicatorOn()) ensureNews();
     } catch (err) {
       statusEl.textContent = "Scan failed. Please try again in a moment.";
     } finally {
@@ -552,7 +560,7 @@
       ].join("");
       const time = INTRADAY(currentTf) ? ist(s.signalTime, true) : new Date(s.signalTime * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" });
       return `<tr>
-        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf)}</td>
+        <td><strong>${esc(s.symbol)}</strong><div class="name" title="${esc(info.name)}">${esc(info.name)}${info.industry ? " · " + esc(info.industry) : ""}</div>${newsBadge(s)}${chartLinks(s.symbol, currentTf, newsButton(s.symbol))}</td>
         <td><span class="badge ${s.side}">${s.side}</span>${s.barsAgo ? `<div class="name">${s.barsAgo} bar${s.barsAgo > 1 ? "s" : ""} ago</div>` : `<div class="name">new</div>`}${htfBadge(s.htf, s.side)}${retestBadge(s.retest)}</td>
         <td class="num ${changed ? "flash" : ""}"><span class="ltp">${fmt(q.ltp)}</span>
           <div class="sm"><span class="${q.changePct >= 0 ? "up" : "down"}">${q.changePct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(q.changePct ?? 0))}%</span> today</div>
@@ -574,7 +582,7 @@
   // Shows one stock's current UT Bot state, the date of its last flip and the setup,
   // whatever the signal-age / confirmation filters say.
   // ---- News sentiment ----
-  let newsItems = [], newsLoaded = false, newsFilter = "all", newsQuotes = {};
+  let newsItems = [], newsLoaded = false, newsFilter = "all", newsQuotes = {}, newsSymbol = null, newsPromise = null, newsAt = 0;
   document.querySelectorAll("[data-ns]").forEach((b) => b.onclick = () => {
     document.querySelectorAll("[data-ns]").forEach((x) => x.classList.toggle("on", x === b));
     newsFilter = b.dataset.ns; renderNews();
@@ -583,14 +591,22 @@
   const CATS = { results: "Results", order_win: "Order win", deal_or_merger: "Deal / merger", dividend_buyback_bonus: "Dividend / buyback / bonus", rating_or_target: "Broker rating", management: "Management", regulatory_or_legal: "Regulatory / legal", fundraise_or_stake: "Fundraise / stake", product_or_expansion: "Expansion", macro_or_sector: "Sector / macro", routine_filing: "Routine filing", other: "Other" };
   const newsFor = (sym) => newsItems.filter((n) => n.symbol === sym && n.sentiment !== "neutral" && n.impact !== "low");
 
-  async function loadNews(force) {
+  // Loads news once (or again when forced); concurrent callers share one request.
+  function ensureNews(force) {
+    if (newsPromise && !force) return newsPromise;
+    // Re-fetch after 10 minutes (the server refreshes on the same cadence), e.g. during auto-scan.
+    if (newsLoaded && !force && Date.now() - newsAt < 600e3) return Promise.resolve();
+    return newsPromise = loadNewsNow().finally(() => { newsPromise = null; if (lastSignals.length) render(); });
+  }
+  function loadNews(force) { return ensureNews(force); }
+  async function loadNewsNow() {
     newsLoaded = true;
     const list = document.getElementById("newsList");
     list.innerHTML = `<div class="sm">Loading and rating the latest news… (up to 30 seconds)</div>`;
     try {
       const r = await (await fetch("/api/news")).json();
       if (r.error) { list.innerHTML = `<div class="warn">${esc(r.error)}</div>`; newsLoaded = false; return; }
-      newsItems = r.news || [];
+      newsItems = r.news || []; newsAt = Date.now();
       document.getElementById("newsMeta").textContent = `· ${newsItems.filter((n) => n.symbol && n.sentiment !== "neutral").length} stock stories · updated ${new Date(r.updatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })} IST`;
       renderNews();
       if (lastSignals.length) render();
@@ -612,12 +628,15 @@
     const hideLow = document.getElementById("newsHideLow").checked;
     const rank = { high: 0, medium: 1, low: 2 };
     const rows = newsItems
-      .filter((n) => (!stocksOnly || n.symbol) && (!hideLow || (n.impact !== "low" && n.category !== "routine_filing")))
-      .filter((n) => newsFilter === "all" ? n.sentiment !== "neutral" || !stocksOnly : n.sentiment === newsFilter)
+      .filter((n) => newsSymbol ? n.symbol === newsSymbol : (!stocksOnly || n.symbol) && (!hideLow || (n.impact !== "low" && n.category !== "routine_filing")))
+      .filter((n) => newsFilter === "all" ? newsSymbol || n.sentiment !== "neutral" || !stocksOnly : n.sentiment === newsFilter)
       .sort((a, b) => rank[a.impact] - rank[b.impact] || (b.time || 0) - (a.time || 0));
     const list = document.getElementById("newsList");
-    if (!rows.length) { list.innerHTML = `<div class="sm">No matching news right now. Untick the filters to see more.</div>`; return; }
-    list.innerHTML = rows.map((n) => {
+    const focus = newsSymbol ? `<div class="newsfocus"><span>Showing news for <b>${esc(newsSymbol)}</b>${names[newsSymbol]?.name ? ` · ${esc(names[newsSymbol].name)}` : ""}</span>
+      <a class="lnk" href="https://news.google.com/search?q=${encodeURIComponent(`${names[newsSymbol]?.name || newsSymbol} share`)}&hl=en-IN&gl=IN&ceid=IN:en" target="_blank" rel="noopener">Search Google News ↗</a>
+      <button onclick="showStockNews(null)">Show all stocks</button></div>` : "";
+    if (!rows.length) { list.innerHTML = focus + `<div class="sm">${newsSymbol ? `No ${newsFilter === "all" ? "" : newsFilter + " "}news for ${esc(newsSymbol)} in today's feeds.` : "No matching news right now. Untick the filters to see more."}</div>`; return; }
+    list.innerHTML = focus + rows.map((n) => {
       const q = n.symbol && newsQuotes[n.symbol];
       return `<div class="nitem">
         <div>${n.symbol ? `<strong>${esc(n.symbol)}</strong>` : `<span class="sm">${esc(n.company || "Market")}</span>`}
@@ -634,6 +653,7 @@
 
   // Badge on scan rows when today's news points the same way as the signal (or the opposite way).
   function newsBadge(s) {
+    if (!newsIndicatorOn()) return "";
     const items = newsFor(s.symbol);
     if (!items.length) return "";
     const want = s.side === "BUY" ? "positive" : "negative";
@@ -643,6 +663,42 @@
     return agree.length
       ? `<div><span class="newsbadge agree" title="${tip}">📰 news agrees</span></div>`
       : `<div><span class="newsbadge clash" title="${tip}">📰 news against signal</span></div>`;
+  }
+
+  // ---- News button on each scanned stock ----
+  const newsIndicatorOn = () => document.getElementById("newsIndicator").checked;
+  document.getElementById("newsIndicator").checked = localStorage.getItem("newsIndicator") !== "0"; // on by default
+  function toggleNewsIndicator(on) {
+    localStorage.setItem("newsIndicator", on ? "1" : "0");
+    if (on && lastSignals.length) ensureNews();
+    if (lastSignals.length) render();
+  }
+  function newsButton(sym) {
+    const label = "📰 News";
+    if (!newsIndicatorOn()) return `<button class="lnk news" onclick="showStockNews('${esc(sym)}')" title="Show news for ${esc(sym)}">${label}</button>`;
+    if (newsPromise) return `<button class="lnk news quiet" onclick="showStockNews('${esc(sym)}')" title="Loading news…">${label} …</button>`;
+    if (!newsLoaded) return `<button class="lnk news quiet" onclick="showStockNews('${esc(sym)}')" title="News isn't loaded. Click to load it.">${label}</button>`;
+    const items = newsFor(sym);
+    const all = newsItems.filter((n) => n.symbol === sym);
+    const pos = items.filter((n) => n.sentiment === "positive").length, neg = items.filter((n) => n.sentiment === "negative").length;
+    const cls = pos && neg ? "mixed" : pos ? "pos" : neg ? "neg" : "quiet";
+    const tip = items.length
+      ? items.slice(0, 3).map((n) => `${n.sentiment.toUpperCase()} (${n.impact}): ${n.title}`).join("\n")
+      : all.length ? `${all.length} minor/neutral headline${all.length > 1 ? "s" : ""}` : "No news in today's feeds";
+    const mark = cls === "pos" ? " ▲" : cls === "neg" ? " ▼" : cls === "mixed" ? " ±" : "";
+    return `<button class="lnk news ${cls}" onclick="showStockNews('${esc(sym)}')" title="${esc(tip)}">${label}${mark}${items.length ? ` ${items.length}` : ""}</button>`;
+  }
+  async function showStockNews(sym) {
+    newsSymbol = sym;
+    const box = document.getElementById("newsBox");
+    if (sym) {
+      newsFilter = "all";
+      document.querySelectorAll("[data-ns]").forEach((x) => x.classList.toggle("on", x.dataset.ns === "all"));
+      box.open = true; // ontoggle loads the news if needed
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (newsLoaded && !newsPromise) renderNews();
+    else await ensureNews();
   }
 
   async function checkStock() {
