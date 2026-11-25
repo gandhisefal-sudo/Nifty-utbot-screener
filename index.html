@@ -140,6 +140,11 @@
     .itile .iv { font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 4px; }
     .itile .ic { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
     .itile .ib { font-size: 10px; } .itile .ib .a { color: #bbf7d0; } .itile .ib .d { color: #fecaca; }
+    .itile.fu { animation: flashUp 1.2s ease-out; } .itile.fd { animation: flashDown 1.2s ease-out; }
+    .itile .iv.fu { color: #bbf7d0; } .itile .iv.fd { color: #fecaca; }
+    @keyframes flashUp { 0% { box-shadow: 0 0 0 3px #86efac inset; filter: brightness(1.35); } 100% { box-shadow: none; filter: none; } }
+    @keyframes flashDown { 0% { box-shadow: 0 0 0 3px #fca5a5 inset; filter: brightness(1.35); } 100% { box-shadow: none; filter: none; } }
+    .livebar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); margin: 4px 0 2px; }
     .itile .tag { position: absolute; right: 6px; bottom: 6px; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,.45); letter-spacing: .04em; }
     .itile.big { min-height: 130px; padding: 14px 16px; } .itile.big .in { font-size: 13px; min-height: 0; }
     .itile.big .iv { font-size: 26px; font-weight: 800; } .itile.big .ic { font-size: 17px; font-weight: 600; } .itile.big .ib { font-size: 14px; }
@@ -1117,39 +1122,75 @@
     return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
   }
   const fmtNum = (x) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Live mode: while the market is open the "Today" view re-fetches every INDEX_REFRESH seconds,
+  // and tiles whose level moved since the last fetch flash green (up) or red (down).
+  const INDEX_REFRESH = 15;
+  let indexPrev = {}, indexFlash = {}, indexFetchedAt = 0, indexBusy = false;
   async function loadIndices(quiet) {
     const period = document.getElementById("sectorPeriod").value;
-    if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="sm">Loading NSE sector indices…</div>`;
+    if (!quiet) { document.getElementById("sectorOut").innerHTML = `<div class="sm">Loading NSE sector indices…</div>`; indexPrev = {}; }
+    if (indexBusy) return;
+    indexBusy = true;
     try {
-      const r = await (await fetch(`/api/indices?period=${period}`)).json();
+      const r = await (await fetch(`/api/indices?period=${period}`, { cache: "no-store" })).json();
       if (r.error) throw new Error(r.error);
       if (r.period !== document.getElementById("sectorPeriod").value || sectorView !== "indices") return;
+      // Work out which tiles moved since the previous fetch.
+      indexFlash = {};
+      for (const x of [...r.main, ...r.sectors]) {
+        const key = x.value ?? x.chg, old = indexPrev[x.sector];
+        if (old != null && key !== old) indexFlash[x.sector] = key > old ? "fu" : "fd";
+        indexPrev[x.sector] = key;
+      }
       indexData = r;
+      indexFetchedAt = Date.now();
       const up = r.sectors.filter((s) => s.chg >= 0).length;
-      const when = r.asOf ? new Date(r.asOf).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : "";
-      document.getElementById("sectorMeta").textContent = `· ${marketOpen() ? "live" : "last"} ${when} · ${up} sectors up / ${r.sectors.length - up} down`;
+      document.getElementById("sectorMeta").textContent = `· ${up} sectors up / ${r.sectors.length - up} down`;
       renderSectors();
     } catch (e) {
       if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load NSE indices.")}</div>`;
+    } finally {
+      indexBusy = false;
     }
   }
+  const isLiveIndices = () => sectorView === "indices" && document.getElementById("sectorPeriod").value === "1d" && marketOpen();
+  // Status line: LIVE pill with the exact quote time, plus a countdown to the next refresh.
+  function renderLiveBar() {
+    const el = document.getElementById("idxLive");
+    if (!el || !indexData) return;
+    const t = indexData.asOf ? new Date(indexData.asOf).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : "—";
+    const moved = Object.keys(indexFlash).length;
+    if (isLiveIndices()) {
+      const left = Math.max(0, INDEX_REFRESH - Math.round((Date.now() - indexFetchedAt) / 1000));
+      el.innerHTML = `<span class="pill open">LIVE</span> Quotes as of <b>${t}</b> · next update in ${left}s${moved ? ` · ${moved} tile${moved > 1 ? "s" : ""} moved` : ""}`;
+    } else {
+      el.innerHTML = `<span class="pill">${marketOpen() ? "PAUSED" : "MARKET CLOSED"}</span> Quotes as of <b>${indexData.asOf ? new Date(indexData.asOf).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : "—"}</b>${marketOpen() ? " · live updates run on the Today period" : " · updates resume at 9:15 IST on the next trading day"}`;
+    }
+  }
+  setInterval(() => {
+    renderLiveBar();
+    if (document.hidden || !document.getElementById("sectorBox").open || !isLiveIndices()) return;
+    if (Date.now() - indexFetchedAt >= INDEX_REFRESH * 1000) loadIndices(true);
+  }, 1000);
   function indexTile(s, scale, big) {
     const val = s.value != null ? fmtNum(s.value) : `avg of ${s.count} stocks`;
     const tag = s.custom ? `<span class="tag" title="NSE has no index for this sector; built from its Nifty 500 stocks">CUSTOM</span>` : s.approx ? `<span class="tag" title="Index history unavailable for this period; showing the average of its stocks">≈</span>` : "";
     const breadth = s.count ? `<span class="ib"><span class="a">▲${s.adv}</span> <span class="d">▼${s.dec}</span></span>` : `<span class="ib">&nbsp;</span>`;
-    return `<button class="itile ${big ? "big" : ""} ${sectorSel === s.sector ? "sel" : ""}" style="background:${idxColor(s.chg, scale)}" onclick="pickSector(${esc(JSON.stringify(s.sector))})" title="${esc(s.sector)}: ${fmtPct(s.chg)}${s.count ? `. ${s.adv} of ${s.count} stocks up, ${s.dec} down. Click to see them.` : ""}">
-      <span class="in">${esc(s.sector)}</span><span class="iv">${val}</span><span class="ic">${fmtPct(s.chg)}</span>${breadth}${tag}</button>`;
+    const fl = indexFlash[s.sector] || "";
+    return `<button class="itile ${big ? "big" : ""} ${fl} ${sectorSel === s.sector ? "sel" : ""}" style="background:${idxColor(s.chg, scale)}" onclick="pickSector(${esc(JSON.stringify(s.sector))})" title="${esc(s.sector)}: ${fmtPct(s.chg)}${s.count ? `. ${s.adv} of ${s.count} stocks up, ${s.dec} down. Click to see them.` : ""}">
+      <span class="in">${esc(s.sector)}</span><span class="iv ${fl}">${val}</span><span class="ic">${fmtPct(s.chg)}</span>${breadth}${tag}</button>`;
   }
   function renderIndices() {
     const out = document.getElementById("sectorOut");
     const { main, sectors } = indexData;
     const scale = Math.max(1, ...sectors.map((s) => Math.abs(s.chg)));
     const bull = sectors.filter((s) => s.chg >= 0), bear = sectors.filter((s) => s.chg < 0).sort((a, b) => a.chg - b.chg);
-    out.innerHTML = `<div class="idxsec">Main indices</div><div class="idxmain">${main.map((s) => indexTile(s, scale, true)).join("")}</div>
+    out.innerHTML = `<div class="livebar" id="idxLive"></div><div class="idxsec">Main indices</div><div class="idxmain">${main.map((s) => indexTile(s, scale, true)).join("")}</div>
       <div class="idxsec">Bullish sectors <span class="cnt">${bull.length}</span></div>
       ${bull.length ? `<div class="idxgrid">${bull.map((s) => indexTile(s, scale)).join("")}</div>` : `<div class="sm">No sector is up.</div>`}
       <div class="idxsec">Bearish sectors <span class="cnt">${bear.length}</span></div>
       ${bear.length ? `<div class="idxgrid">${bear.map((s) => indexTile(s, scale)).join("")}</div>` : `<div class="sm">No sector is down.</div>`}`;
+    renderLiveBar();
     renderSectorStocks();
   }
   async function loadSectors(quiet) {
@@ -1220,7 +1261,7 @@
         <span class="hn">${esc(x.symbol)}</span><span class="hv">${fmtPct(x.chg)}</span><span class="hs">₹${x.ltp}</span></button>`).join("")}</div>`;
   }
   sectorTimer = setInterval(() => {
-    if (document.getElementById("sectorBox").open && marketOpen() && document.getElementById("sectorPeriod").value === "1d") loadSectors(true);
+    if (sectorView !== "indices" && document.getElementById("sectorBox").open && marketOpen() && document.getElementById("sectorPeriod").value === "1d") loadSectors(true);
   }, 60000);
   if (document.getElementById("sectorBox").open) loadSectors();
 

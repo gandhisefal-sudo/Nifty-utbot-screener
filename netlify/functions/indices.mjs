@@ -165,7 +165,7 @@ export default async (req) => {
       asOf: latest ? new Date(latest * 1000).toISOString() : null,
       main, sectors,
     }, {
-      headers: { "Cache-Control": "no-store", "Netlify-CDN-Cache-Control": `public, max-age=${period === "1d" ? 60 : 900}, stale-while-revalidate=60` },
+      headers: { "Cache-Control": "no-store", "Netlify-CDN-Cache-Control": `public, max-age=${period === "1d" ? 10 : 900}, stale-while-revalidate=${period === "1d" ? 5 : 60}` },
     });
   } catch {
     return Response.json({ error: "Couldn't load NSE index data right now. Try again in a minute." }, { status: 502 });
