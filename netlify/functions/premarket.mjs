@@ -1,5 +1,6 @@
 import { getSessions, getDeals, getPositioning, INSTITUTIONAL } from "../../lib/nse-daily.mjs";
 import { NSE_EQUITIES } from "../../lib/nse-equities.mjs";
+import { sparkMany } from "../../lib/yahoo.mjs";
 
 // GET /api/premarket            -> watchlist for the next session, built from NSE's end-of-day files
 // GET /api/premarket?live=1     -> live "volume shocks": stocks trading far above their normal volume right now
@@ -73,19 +74,6 @@ function expectedShare(min) {
   return 1;
 }
 
-async function sparkBatch(symbols) {
-  const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${symbols.map((s) => encodeURIComponent(s + ".NS")).join(",")}&range=1d&interval=1d`;
-  for (const host of ["query1", "query2"]) {
-    try {
-      const res = await fetch(url.replace("query1", host), { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8000) });
-      if (!res.ok) continue;
-      const data = await res.json();
-      return (data.spark?.result || []).map((r) => ({ symbol: r.symbol.replace(/\.NS$/, ""), meta: r.response?.[0]?.meta })).filter((x) => x.meta);
-    } catch {}
-  }
-  return [];
-}
-
 async function liveShocks(sessions, minTurnover) {
   const L = sessions[sessions.length - 1];
   const base = sessions.slice(-BASELINE_DAYS);
@@ -96,13 +84,7 @@ async function liveShocks(sessions, minTurnover) {
     .sort((a, b) => b.avgTurn - a.avgTurn).slice(0, 1500);
   const bySym = new Map(stats.map((s) => [s.symbol, s]));
 
-  const batches = [];
-  for (let i = 0; i < stats.length; i += 20) batches.push(stats.slice(i, i + 20).map((s) => s.symbol));
-  const quotes = [];
-  let next = 0;
-  await Promise.all(Array.from({ length: 10 }, async () => {
-    while (next < batches.length) quotes.push(...(await sparkBatch(batches[next++])));
-  }));
+  const quotes = await sparkMany(stats.map((s) => s.symbol));
 
   const nowIst = new Date(Date.now() + 19800e3);
   const today = nowIst.toISOString().slice(0, 10);

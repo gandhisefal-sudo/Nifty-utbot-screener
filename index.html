@@ -120,6 +120,29 @@
     #checkOut b { color: var(--text); }
     .note table { width: auto; background: transparent; font-size: 12px; margin: 6px 0; }
     .note td, .note th { padding: 4px 10px; position: static; }
+    .heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+    .heatcols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .heatcols h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    @media (max-width: 760px) { .heatcols { grid-template-columns: 1fr; } }
+    .htile { border-radius: 6px; padding: 9px 10px; cursor: pointer; border: 2px solid transparent; color: #f8fafc; min-height: 74px; display: flex; flex-direction: column; justify-content: space-between; text-align: left; font: inherit; }
+    .htile:hover, .htile.sel { border-color: var(--accent); }
+    .htile .hn { font-size: 12px; font-weight: 700; line-height: 1.25; }
+    .htile .hv { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .htile .hs { font-size: 10px; opacity: .85; }
+    .htile .hb { height: 4px; border-radius: 2px; background: rgba(244,63,94,.85); overflow: hidden; margin-top: 4px; }
+    .htile .hb > i { display: block; height: 100%; background: rgba(34,197,94,.95); }
+    .htile.best { box-shadow: 0 0 0 1px #86efac inset; }
+    .htile.worst { box-shadow: 0 0 0 1px #fda4af inset; }
+    .heat.stocks { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 4px; }
+    .heat.stocks .htile { min-height: 54px; padding: 6px 8px; }
+    .heat.stocks .hv { font-size: 14px; }
+    .extremes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .extreme { border-radius: 8px; padding: 10px 12px; font-size: 13px; cursor: pointer; }
+    .extreme.pos { background: var(--buy-bg); border: 1px solid #1f6f46; }
+    .extreme.neg { background: var(--sell-bg); border: 1px solid #7a2a2a; }
+    .extreme b { font-size: 16px; }
+    .legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .legend i { display: inline-block; width: 160px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #be123c, #1b2438, #15803d); }
   </style>
 </head>
 <body>
@@ -217,6 +240,27 @@
     </label>
     <div id="checkOut" class="sm">Uses the timeframe and UT Bot settings selected above.</div>
   </div>
+
+  <details class="newsbox" id="sectorBox" open ontoggle="if (this.open && !sectorData) loadSectors()">
+    <summary>🗺 Sector heatmap: which sectors are strongest and weakest <span class="sm" id="sectorMeta"></span></summary>
+    <div class="newsbar">
+      <span class="tabs" style="margin:0" id="sectorTabs">
+        <button class="on" data-sv="top">🔥 Most positive &amp; negative</button>
+        <button data-sv="all">All sectors</button>
+      </span>
+      <label>Period
+        <select id="sectorPeriod" onchange="loadSectors()">
+          <option value="1d" selected>Today</option>
+          <option value="1w">1 week</option>
+          <option value="1m">1 month</option>
+        </select>
+      </label>
+      <button onclick="loadSectors()">Refresh</button>
+    </div>
+    <div id="sectorOut"><div class="sm">Open this panel to load the sector heatmap.</div></div>
+    <div id="sectorStocks"></div>
+    <div class="sm" style="margin-top:8px;line-height:1.6">Built from the <b>Nifty 500</b>, grouped by NSE's sector classification. A sector's move is the <b>average move of its stocks</b> (each stock counts equally), so it shows how the typical stock in the sector did. The green/red bar under each sector is its breadth: the share of its stocks that are up. <b>Today</b> uses live quotes (refreshed every minute while the market is open); <b>1 week</b> and <b>1 month</b> use NSE's end-of-day closing prices. Click a sector to see every stock in it. Trading with the strongest sector (buys) or the weakest one (shorts) tends to give signals more follow-through.</div>
+  </details>
 
   <details class="newsbox radar" id="radarBox" open ontoggle="if (this.open && !radarLoaded) loadRadar()">
     <summary>🔭 Radar: stocks to watch before and right after the open <span class="sm" id="radarMeta"></span></summary>
@@ -1035,6 +1079,89 @@
     const syms = new Set([...(shocks?.shocks || []).filter((x) => x.isToday).map((x) => x.symbol), ...(radar?.watch || []).filter((w) => w.bias !== "bearish").map((w) => w.symbol)]);
     return { stocks: [...syms].slice(0, 300).map((symbol) => names[symbol] || { symbol }) };
   }
+  // ---- Sector heatmap ----
+  let sectorData = null, sectorView = "top", sectorSel = null, sectorTimer = null;
+  document.querySelectorAll("#sectorTabs button").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("#sectorTabs button").forEach((x) => x.classList.toggle("on", x === b));
+    sectorView = b.dataset.sv;
+    renderSectors();
+  });
+  const fmtPct = (x) => `${x > 0 ? "+" : ""}${x.toFixed(2)}%`;
+  // Diverging colour: neutral slate at 0%, deeper green/red as the move approaches `scale`.
+  function heatColor(chg, scale) {
+    const t = Math.min(Math.abs(chg) / (scale || 1), 1) ** 0.8;
+    const [a, b] = [[27, 36, 56], chg >= 0 ? [21, 128, 61] : [190, 18, 60]];
+    return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+  }
+  async function loadSectors(quiet) {
+    const period = document.getElementById("sectorPeriod").value;
+    if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="sm">Loading sector moves for the Nifty 500…</div>`;
+    try {
+      const r = await (await fetch(`/api/sectors?period=${period}`)).json();
+      if (r.error) throw new Error(r.error);
+      if (r.period !== document.getElementById("sectorPeriod").value) return;
+      sectorData = r;
+      const when = r.source === "live"
+        ? `live · ${r.asOf ? new Date(r.asOf).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : ""}`
+        : r.period === "1d" ? `NSE close of ${dateLabel(r.to)}` : `${dateLabel(r.from)} → ${dateLabel(r.to)} closes`;
+      document.getElementById("sectorMeta").textContent = `· ${when} · Nifty 500 avg ${fmtPct(r.market.chg)} · ${r.market.adv} up / ${r.market.dec} down`;
+      renderSectors();
+    } catch (e) {
+      if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load sectors.")}</div>`;
+    }
+  }
+  function sectorTile(s, scale, extra = "") {
+    const up = s.adv + s.dec ? Math.round((s.adv / (s.adv + s.dec)) * 100) : 50;
+    return `<button class="htile ${extra} ${sectorSel === s.sector ? "sel" : ""}" style="background:${heatColor(s.chg, scale)}" onclick="pickSector(${esc(JSON.stringify(s.sector))})" title="${esc(s.sector)}: average ${fmtPct(s.chg)}, median ${fmtPct(s.median)}. ${s.adv} of ${s.count} stocks up, ${s.dec} down.">
+      <span class="hn">${extra === "best" ? "▲ " : extra === "worst" ? "▼ " : ""}${esc(s.sector)}</span>
+      <span class="hv">${fmtPct(s.chg)}</span>
+      <span class="hs">${s.adv}▲ ${s.dec}▼ of ${s.count}<span class="hb"><i style="width:${up}%"></i></span></span>
+    </button>`;
+  }
+  function renderSectors() {
+    const out = document.getElementById("sectorOut");
+    if (!sectorData) return;
+    const list = sectorData.sectors;
+    if (!list.length) { out.innerHTML = `<div class="sm">No sector data available.</div>`; return; }
+    const scale = Math.max(0.5, ...list.map((s) => Math.abs(s.chg)));
+    const best = list[0], worst = list[list.length - 1];
+    const mark = (s) => (s === best && s.chg > 0 ? "best" : s === worst && s.chg < 0 ? "worst" : "");
+    const extremes = `<div class="extremes">
+      <div class="extreme pos" onclick="pickSector(${esc(JSON.stringify(best.sector))})">▲ Most positive sector<br><b>${esc(best.sector)}</b> <b class="up">${fmtPct(best.chg)}</b><div class="sm">${best.adv} of ${best.count} stocks up · leader ${esc(best.stocks[0]?.symbol || "")} ${best.stocks[0] ? fmtPct(best.stocks[0].chg) : ""}</div></div>
+      <div class="extreme neg" onclick="pickSector(${esc(JSON.stringify(worst.sector))})">▼ Most negative sector<br><b>${esc(worst.sector)}</b> <b class="down">${fmtPct(worst.chg)}</b><div class="sm">${worst.dec} of ${worst.count} stocks down · laggard ${esc(worst.stocks.at(-1)?.symbol || "")} ${worst.stocks.length ? fmtPct(worst.stocks.at(-1).chg) : ""}</div></div>
+    </div>`;
+    const legend = `<div class="legend">${fmtPct(-scale)} <i></i> ${fmtPct(scale)}</div>`;
+    if (sectorView === "all") {
+      out.innerHTML = extremes + `<div class="heat">${list.map((s) => sectorTile(s, scale, mark(s))).join("")}</div>` + legend;
+    } else {
+      const n = Math.min(5, Math.floor(list.length / 2));
+      const top = list.slice(0, n), bottom = list.slice(-n).reverse();
+      out.innerHTML = extremes + `<div class="heatcols">
+        <div><h4 class="up">Most positive</h4><div class="heat">${top.map((s) => sectorTile(s, scale, mark(s))).join("")}</div></div>
+        <div><h4 class="down">Most negative</h4><div class="heat">${bottom.map((s) => sectorTile(s, scale, mark(s))).join("")}</div></div>
+      </div>` + legend + `<div class="sm" style="margin-top:6px">Showing the ${n} strongest and ${n} weakest of ${list.length} sectors. <a class="lnk" href="#" onclick="document.querySelector('#sectorTabs [data-sv=all]').click();return false;">See all sectors</a></div>`;
+    }
+    renderSectorStocks();
+  }
+  function pickSector(name) {
+    sectorSel = sectorSel === name ? null : name;
+    renderSectors();
+    if (sectorSel) document.getElementById("sectorStocks").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  function renderSectorStocks() {
+    const box = document.getElementById("sectorStocks");
+    const s = sectorData?.sectors.find((x) => x.sector === sectorSel);
+    if (!s) { box.innerHTML = ""; return; }
+    const scale = Math.max(1, ...s.stocks.map((x) => Math.abs(x.chg)).sort((a, b) => a - b).slice(0, Math.ceil(s.stocks.length * 0.9)));
+    box.innerHTML = `<div class="newsfocus" style="margin-top:10px"><b>${esc(s.sector)}</b> ${fmtPct(s.chg)} · ${s.adv} up, ${s.dec} down · click a stock to check its UT Bot signal <a class="lnk" href="#" onclick="pickSector(${esc(JSON.stringify(s.sector))});return false;">Close</a></div>
+      <div class="heat stocks">${s.stocks.map((x) => `<button class="htile" style="background:${heatColor(x.chg, scale)}" title="${esc(x.name || x.symbol)} · ₹${x.ltp}" onclick="document.getElementById('checkSym').value='${esc(x.symbol)}';checkStock();document.getElementById('checkSym').scrollIntoView({behavior:'smooth',block:'center'});">
+        <span class="hn">${esc(x.symbol)}</span><span class="hv">${fmtPct(x.chg)}</span><span class="hs">₹${x.ltp}</span></button>`).join("")}</div>`;
+  }
+  sectorTimer = setInterval(() => {
+    if (document.getElementById("sectorBox").open && marketOpen() && document.getElementById("sectorPeriod").value === "1d") loadSectors(true);
+  }, 60000);
+  if (document.getElementById("sectorBox").open) loadSectors();
+
   if (document.getElementById("radarBox").open) loadRadar();
   refreshLive();
   // Restore this browser's UT Bot settings (falls back to the recommended 2 / 14).
