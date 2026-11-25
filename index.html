@@ -130,6 +130,19 @@
     .htile .hv { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
     .htile .hs { font-size: 10px; opacity: .85; }
     .htile .hb { height: 4px; border-radius: 2px; background: rgba(244,63,94,.85); overflow: hidden; margin-top: 4px; }
+    .idxsec { margin: 14px 0 8px; font-size: 12px; font-weight: 800; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .idxsec .cnt { font-size: 11px; letter-spacing: 0; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); }
+    .idxmain { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .idxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 8px; }
+    .itile { position: relative; border-radius: 8px; padding: 10px 10px 8px; cursor: pointer; border: 2px solid transparent; color: #fff; text-align: left; font: inherit; display: flex; flex-direction: column; gap: 3px; min-height: 104px; }
+    .itile:hover, .itile.sel { border-color: var(--accent); }
+    .itile .in { font-size: 11px; font-weight: 800; text-transform: uppercase; line-height: 1.25; min-height: 28px; }
+    .itile .iv { font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .itile .ic { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .itile .ib { font-size: 10px; } .itile .ib .a { color: #bbf7d0; } .itile .ib .d { color: #fecaca; }
+    .itile .tag { position: absolute; right: 6px; bottom: 6px; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,.45); letter-spacing: .04em; }
+    .itile.big { min-height: 130px; padding: 14px 16px; } .itile.big .in { font-size: 13px; min-height: 0; }
+    .itile.big .iv { font-size: 26px; font-weight: 800; } .itile.big .ic { font-size: 17px; font-weight: 600; } .itile.big .ib { font-size: 14px; }
     .htile .hb > i { display: block; height: 100%; background: rgba(34,197,94,.95); }
     .htile.best { box-shadow: 0 0 0 1px #86efac inset; }
     .htile.worst { box-shadow: 0 0 0 1px #fda4af inset; }
@@ -245,8 +258,9 @@
     <summary>🗺 Sector heatmap: which sectors are strongest and weakest <span class="sm" id="sectorMeta"></span></summary>
     <div class="newsbar">
       <span class="tabs" style="margin:0" id="sectorTabs">
-        <button class="on" data-sv="top">🔥 Most positive &amp; negative</button>
-        <button data-sv="all">All sectors</button>
+        <button class="on" data-sv="indices">📊 NSE sector indices</button>
+        <button data-sv="top">🔥 Most positive &amp; negative</button>
+        <button data-sv="all">All sectors (Nifty 500 groups)</button>
       </span>
       <label>Period
         <select id="sectorPeriod" onchange="loadSectors()">
@@ -259,7 +273,7 @@
     </div>
     <div id="sectorOut"><div class="sm">Open this panel to load the sector heatmap.</div></div>
     <div id="sectorStocks"></div>
-    <div class="sm" style="margin-top:8px;line-height:1.6">Built from the <b>Nifty 500</b>, grouped by NSE's sector classification. A sector's move is the <b>average move of its stocks</b> (each stock counts equally), so it shows how the typical stock in the sector did. The green/red bar under each sector is its breadth: the share of its stocks that are up. <b>Today</b> uses live quotes (refreshed every minute while the market is open); <b>1 week</b> and <b>1 month</b> use NSE's end-of-day closing prices. Click a sector to see every stock in it. Trading with the strongest sector (buys) or the weakest one (shorts) tends to give signals more follow-through.</div>
+    <div class="sm" style="margin-top:8px;line-height:1.6"><b>NSE sector indices</b> shows NIFTY 50, Bank Nifty and every NSE sectoral and thematic index at its live level, split into bullish (up) and bearish (down) sectors. ▲/▼ counts are how many of the index's stocks are up and down. Tiles marked <b>CUSTOM</b> are sectors NSE has no index for (Insurance, Cement, Power, Telecom, etc.), so their move is the average of their Nifty 500 stocks. Tiles marked <b>≈</b> use the average of their stocks because the index's own history wasn't available for that period.<br>The other two tabs are built from the <b>Nifty 500</b>, grouped by NSE's sector classification. A sector's move is the <b>average move of its stocks</b> (each stock counts equally), so it shows how the typical stock in the sector did. The green/red bar under each sector is its breadth: the share of its stocks that are up. <b>Today</b> uses live quotes (refreshed every minute while the market is open); <b>1 week</b> and <b>1 month</b> use NSE's end-of-day closing prices. Click a sector to see every stock in it. Trading with the strongest sector (buys) or the weakest one (shorts) tends to give signals more follow-through.</div>
   </details>
 
   <details class="newsbox radar" id="radarBox" open ontoggle="if (this.open && !radarLoaded) loadRadar()">
@@ -1080,11 +1094,14 @@
     return { stocks: [...syms].slice(0, 300).map((symbol) => names[symbol] || { symbol }) };
   }
   // ---- Sector heatmap ----
-  let sectorData = null, sectorView = "top", sectorSel = null, sectorTimer = null;
+  let sectorData = null, indexData = null, sectorView = "indices", sectorSel = null, sectorTimer = null;
   document.querySelectorAll("#sectorTabs button").forEach((b) => b.onclick = () => {
     document.querySelectorAll("#sectorTabs button").forEach((x) => x.classList.toggle("on", x === b));
     sectorView = b.dataset.sv;
-    renderSectors();
+    sectorSel = null;
+    const period = document.getElementById("sectorPeriod").value;
+    const have = sectorView === "indices" ? indexData : sectorData;
+    if (!have || have.period !== period) loadSectors(); else renderSectors();
   });
   const fmtPct = (x) => `${x > 0 ? "+" : ""}${x.toFixed(2)}%`;
   // Diverging colour: neutral slate at 0%, deeper green/red as the move approaches `scale`.
@@ -1093,13 +1110,56 @@
     const [a, b] = [[27, 36, 56], chg >= 0 ? [21, 128, 61] : [190, 18, 60]];
     return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
   }
+  // Screenshot-style colours: light green/red near 0%, deeper as the move grows.
+  function idxColor(chg, scale) {
+    const t = Math.min(Math.abs(chg) / (scale || 1), 1) ** 0.7;
+    const [a, b] = chg >= 0 ? [[64, 184, 84], [0, 100, 0]] : [[232, 64, 64], [100, 0, 0]];
+    return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+  }
+  const fmtNum = (x) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  async function loadIndices(quiet) {
+    const period = document.getElementById("sectorPeriod").value;
+    if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="sm">Loading NSE sector indices…</div>`;
+    try {
+      const r = await (await fetch(`/api/indices?period=${period}`)).json();
+      if (r.error) throw new Error(r.error);
+      if (r.period !== document.getElementById("sectorPeriod").value || sectorView !== "indices") return;
+      indexData = r;
+      const up = r.sectors.filter((s) => s.chg >= 0).length;
+      const when = r.asOf ? new Date(r.asOf).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : "";
+      document.getElementById("sectorMeta").textContent = `· ${marketOpen() ? "live" : "last"} ${when} · ${up} sectors up / ${r.sectors.length - up} down`;
+      renderSectors();
+    } catch (e) {
+      if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="warn">${esc(e.message || "Couldn't load NSE indices.")}</div>`;
+    }
+  }
+  function indexTile(s, scale, big) {
+    const val = s.value != null ? fmtNum(s.value) : `avg of ${s.count} stocks`;
+    const tag = s.custom ? `<span class="tag" title="NSE has no index for this sector; built from its Nifty 500 stocks">CUSTOM</span>` : s.approx ? `<span class="tag" title="Index history unavailable for this period; showing the average of its stocks">≈</span>` : "";
+    const breadth = s.count ? `<span class="ib"><span class="a">▲${s.adv}</span> <span class="d">▼${s.dec}</span></span>` : `<span class="ib">&nbsp;</span>`;
+    return `<button class="itile ${big ? "big" : ""} ${sectorSel === s.sector ? "sel" : ""}" style="background:${idxColor(s.chg, scale)}" onclick="pickSector(${esc(JSON.stringify(s.sector))})" title="${esc(s.sector)}: ${fmtPct(s.chg)}${s.count ? `. ${s.adv} of ${s.count} stocks up, ${s.dec} down. Click to see them.` : ""}">
+      <span class="in">${esc(s.sector)}</span><span class="iv">${val}</span><span class="ic">${fmtPct(s.chg)}</span>${breadth}${tag}</button>`;
+  }
+  function renderIndices() {
+    const out = document.getElementById("sectorOut");
+    const { main, sectors } = indexData;
+    const scale = Math.max(1, ...sectors.map((s) => Math.abs(s.chg)));
+    const bull = sectors.filter((s) => s.chg >= 0), bear = sectors.filter((s) => s.chg < 0).sort((a, b) => a.chg - b.chg);
+    out.innerHTML = `<div class="idxsec">Main indices</div><div class="idxmain">${main.map((s) => indexTile(s, scale, true)).join("")}</div>
+      <div class="idxsec">Bullish sectors <span class="cnt">${bull.length}</span></div>
+      ${bull.length ? `<div class="idxgrid">${bull.map((s) => indexTile(s, scale)).join("")}</div>` : `<div class="sm">No sector is up.</div>`}
+      <div class="idxsec">Bearish sectors <span class="cnt">${bear.length}</span></div>
+      ${bear.length ? `<div class="idxgrid">${bear.map((s) => indexTile(s, scale)).join("")}</div>` : `<div class="sm">No sector is down.</div>`}`;
+    renderSectorStocks();
+  }
   async function loadSectors(quiet) {
+    if (sectorView === "indices") return loadIndices(quiet);
     const period = document.getElementById("sectorPeriod").value;
     if (!quiet) document.getElementById("sectorOut").innerHTML = `<div class="sm">Loading sector moves for the Nifty 500…</div>`;
     try {
       const r = await (await fetch(`/api/sectors?period=${period}`)).json();
       if (r.error) throw new Error(r.error);
-      if (r.period !== document.getElementById("sectorPeriod").value) return;
+      if (r.period !== document.getElementById("sectorPeriod").value || sectorView === "indices") return;
       sectorData = r;
       const when = r.source === "live"
         ? `live · ${r.asOf ? new Date(r.asOf).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) + " IST" : ""}`
@@ -1120,6 +1180,7 @@
   }
   function renderSectors() {
     const out = document.getElementById("sectorOut");
+    if (sectorView === "indices") { if (indexData) renderIndices(); return; }
     if (!sectorData) return;
     const list = sectorData.sectors;
     if (!list.length) { out.innerHTML = `<div class="sm">No sector data available.</div>`; return; }
@@ -1150,8 +1211,9 @@
   }
   function renderSectorStocks() {
     const box = document.getElementById("sectorStocks");
-    const s = sectorData?.sectors.find((x) => x.sector === sectorSel);
-    if (!s) { box.innerHTML = ""; return; }
+    const src = sectorView === "indices" ? [...(indexData?.main || []), ...(indexData?.sectors || [])] : sectorData?.sectors || [];
+    const s = src.find((x) => x.sector === sectorSel);
+    if (!s || !s.stocks.length) { box.innerHTML = ""; return; }
     const scale = Math.max(1, ...s.stocks.map((x) => Math.abs(x.chg)).sort((a, b) => a - b).slice(0, Math.ceil(s.stocks.length * 0.9)));
     box.innerHTML = `<div class="newsfocus" style="margin-top:10px"><b>${esc(s.sector)}</b> ${fmtPct(s.chg)} · ${s.adv} up, ${s.dec} down · click a stock to check its UT Bot signal <a class="lnk" href="#" onclick="pickSector(${esc(JSON.stringify(s.sector))});return false;">Close</a></div>
       <div class="heat stocks">${s.stocks.map((x) => `<button class="htile" style="background:${heatColor(x.chg, scale)}" title="${esc(x.name || x.symbol)} · ₹${x.ltp}" onclick="document.getElementById('checkSym').value='${esc(x.symbol)}';checkStock();document.getElementById('checkSym').scrollIntoView({behavior:'smooth',block:'center'});">
