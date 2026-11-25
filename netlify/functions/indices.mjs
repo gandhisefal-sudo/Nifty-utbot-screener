@@ -16,6 +16,8 @@ const r2 = (x) => Math.round(x * 100) / 100;
 // csv: NSE constituent file; or `symbols` / `industry` to build constituents from the Nifty 500.
 const INDICES = [
   { name: "NIFTY 50", yahoo: "^NSEI", csv: "ind_nifty50list", group: "main" },
+  // BSE Sensex: 30 stocks (BSE publishes no simple CSV, so the list is kept here; all trade on NSE too).
+  { name: "SENSEX", yahoo: "^BSESN", group: "main", symbols: ["ADANIPORTS", "ASIANPAINT", "AXISBANK", "BAJFINANCE", "BAJAJFINSV", "BEL", "BHARTIARTL", "HCLTECH", "HDFCBANK", "HINDUNILVR", "ICICIBANK", "INFY", "ITC", "KOTAKBANK", "LT", "M&M", "MARUTI", "NTPC", "POWERGRID", "RELIANCE", "SBIN", "SUNPHARMA", "TMPV", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT", "ULTRACEMCO", "ETERNAL"] },
   { name: "BANK NIFTY", yahoo: "^NSEBANK", csv: "ind_niftybanklist", group: "main" },
   { name: "NIFTY PVT BANK", yahoo: "NIFTY_PVT_BANK.NS", csv: "ind_nifty_privatebanklist" },
   { name: "NIFTY PSU BANK", yahoo: "^CNXPSUBANK", csv: "ind_niftypsubanklist" },
