@@ -161,6 +161,19 @@
     .extreme b { font-size: 16px; }
     .legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-top: 8px; }
     .legend i { display: inline-block; width: 160px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #be123c, #1b2438, #15803d); }
+    .fotag { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 3px; white-space: nowrap; }
+    .fotag.lb { background: #0f3a24; color: #4ade80; } .fotag.sc { background: #12301f; color: #a7f3d0; }
+    .fotag.sb { background: #46121f; color: #fb7185; } .fotag.lu { background: #3a1820; color: #fecdd3; }
+    .fotag.nt { background: #1b2438; color: var(--muted); }
+    .fostats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; margin: 6px 0 10px; }
+    .fostats span { color: var(--muted); } .fostats b { color: var(--text); }
+    table.chain td, table.chain th { padding: 5px 8px; font-size: 12px; text-align: right; }
+    table.chain td.k { text-align: center; font-weight: 800; background: #0e1628; }
+    table.chain tr.atm td { border-top: 2px solid var(--accent); }
+    table.chain td.itm { background: #1a2338; }
+    table.chain td.oi { background-repeat: no-repeat; background-size: var(--w, 0%) 100%; }
+    table.chain td.oi.c { background-image: linear-gradient(#46121f, #46121f); background-position: right; }
+    table.chain td.oi.p { background-image: linear-gradient(#0f3a24, #0f3a24); background-position: left; }
   </style>
 </head>
 <body>
@@ -176,6 +189,9 @@
           <option value="nifty100">Nifty 100</option>
           <option value="nifty200">Nifty 200</option>
           <option value="nifty500" selected>Nifty 500</option>
+        </optgroup>
+        <optgroup label="Futures &amp; options">
+          <option value="fno">F&amp;O stocks (~220)</option>
         </optgroup>
         <optgroup label="Beyond Nifty">
           <option value="nonNifty">Non-Nifty stocks (~1,900)</option>
@@ -279,6 +295,22 @@
     <div id="sectorOut"><div class="sm">Open this panel to load the sector heatmap.</div></div>
     <div id="sectorStocks"></div>
     <div class="sm" style="margin-top:8px;line-height:1.6"><b>NSE sector indices</b> shows NIFTY 50, Sensex, Bank Nifty and every NSE sectoral and thematic index at its live level, split into bullish (up) and bearish (down) sectors. ▲/▼ counts are how many of the index's stocks are up and down. Tiles marked <b>CUSTOM</b> are sectors NSE has no index for (Insurance, Cement, Power, Telecom, etc.), so their move is the average of their Nifty 500 stocks. Tiles marked <b>≈</b> use the average of their stocks because the index's own history wasn't available for that period.<br>The other two tabs are built from the <b>Nifty 500</b>, grouped by NSE's sector classification. A sector's move is the <b>average move of its stocks</b> (each stock counts equally), so it shows how the typical stock in the sector did. The green/red bar under each sector is its breadth: the share of its stocks that are up. <b>Today</b> uses live quotes (refreshed every minute while the market is open); <b>1 week</b> and <b>1 month</b> use NSE's end-of-day closing prices. Click a sector to see every stock in it. Trading with the strongest sector (buys) or the weakest one (shorts) tends to give signals more follow-through.</div>
+  </details>
+
+  <details class="newsbox" id="foBox" open ontoggle="if (this.open && !foData) loadFo()">
+    <summary>📈 Futures &amp; Options: every F&amp;O stock and index <span class="sm" id="foMeta"></span></summary>
+    <div class="newsbar">
+      <span class="tabs" style="margin:0" id="foTabs">
+        <button class="on" data-fo="list">📋 All F&amp;O: futures, OI buildup, PCR</button>
+        <button data-fo="chain">🔗 Option chain</button>
+      </span>
+      <span id="foControls"></span>
+      <button onclick="foTab === 'chain' ? loadChain() : loadFo()">Refresh</button>
+    </div>
+    <div id="foOut"><div class="sm">Open this panel to load futures &amp; options.</div></div>
+    <div class="sm" style="margin-top:8px;line-height:1.6"><b>Source:</b> NSE's official end-of-day F&amp;O file (every futures and options contract), published each evening after the close; NSE blocks automated access to its live option chain, so futures prices, OI and option prices are from the last session shown above. <b>Live spot</b> is the current stock/index price, refreshed every minute in market hours.
+      <b>Buildup</b> compares the near-month future's price change with the change in futures OI: <span class="fotag lb">Long buildup</span> price ↑ OI ↑ (fresh buying), <span class="fotag sb">Short buildup</span> price ↓ OI ↑ (fresh selling), <span class="fotag sc">Short covering</span> price ↑ OI ↓ (shorts exiting), <span class="fotag lu">Long unwinding</span> price ↓ OI ↓ (longs exiting).
+      <b>PCR</b> = put OI ÷ call OI for the nearest expiry (above ~1.2 often reads bullish/oversold, below ~0.7 bearish/overbought). <b>Max pain</b> is the strike where option buyers lose most at expiry. <b>Support / resistance</b> are the strikes with the biggest put / call OI. <b>IV</b> is the at-the-money implied volatility (Black-Scholes).</div>
   </details>
 
   <details class="newsbox radar" id="radarBox" open ontoggle="if (this.open && !radarLoaded) loadRadar()">
@@ -1275,6 +1307,168 @@
     document.getElementById("atrPeriod").value = saved.atrPeriod || UT_DEFAULT.atrPeriod;
     saveUtSettings();
   })();
+
+  // ---- 📈 Futures & Options ----
+  let foData = null, foTab = "list", foChain = null, foSym = "NIFTY";
+  const foState = { type: "all", buildup: "", q: "", sort: "val", strikes: "15" };
+  const foNum = (n) => n == null ? "—" : Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  const foBig = (n) => n == null ? "—" : Math.abs(n) >= 1e7 ? `${(n / 1e7).toFixed(2)} Cr` : Math.abs(n) >= 1e5 ? `${(n / 1e5).toFixed(2)} L` : Number(n).toLocaleString("en-IN");
+  const foSigned = (n, f = foBig) => n == null ? "—" : `<span class="${n >= 0 ? "up" : "down"}">${n > 0 ? "+" : ""}${f(n)}</span>`;
+  const foTag = (b) => !b ? "—" : `<span class="fotag ${({ "Long buildup": "lb", "Short buildup": "sb", "Short covering": "sc", "Long unwinding": "lu" })[b] || "nt"}">${esc(b)}</span>`;
+  const expLabel = (iso) => iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { timeZone: "UTC", day: "2-digit", month: "short", year: "2-digit" }) : "—";
+  const liveCell = (l) => l ? `<b>${foNum(l.ltp)}</b> ${l.chg != null ? pct(l.chg) : ""}` : "—";
+
+  document.querySelectorAll("#foTabs button").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("#foTabs button").forEach((x) => x.classList.toggle("on", x === b));
+    foTab = b.dataset.fo;
+    if (foTab === "chain" && (!foChain || foChain.symbol !== foSym)) loadChain(); else renderFo();
+  });
+
+  async function loadFo(quiet) {
+    const out = document.getElementById("foOut");
+    if (!quiet && !foData) out.innerHTML = `<div class="sm">Loading every F&amp;O contract from NSE…</div>`;
+    try {
+      const r = await (await fetch("/api/fo")).json();
+      if (r.error) throw new Error(r.error);
+      foData = r;
+      document.getElementById("foMeta").textContent = `· ${r.count} underlyings · F&O data: ${dateLabel(r.date)} close`;
+      if (foTab === "list") renderFo();
+    } catch (e) {
+      if (!quiet) out.innerHTML = `<div class="warn">Couldn't load F&amp;O data: ${esc(e.message)}</div>`;
+    }
+  }
+
+  function openChain(sym) {
+    foSym = sym;
+    document.querySelector('#foTabs button[data-fo="chain"]').click();
+    document.getElementById("foBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function loadChain(expiry, quiet) {
+    if (!quiet) { foChain = null; if (foTab === "chain") renderFo(); }
+    try {
+      const r = await (await fetch(`/api/fo?symbol=${encodeURIComponent(foSym)}${expiry ? `&expiry=${expiry}` : ""}`)).json();
+      if (r.error) throw new Error(r.error);
+      foChain = r;
+    } catch (e) {
+      foChain = { error: e.message, symbol: foSym };
+    }
+    if (foTab === "chain") renderFo();
+  }
+
+  function foControls() {
+    const ctl = document.getElementById("foControls");
+    if (foTab === "list") {
+      const opt = (v, label, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`;
+      ctl.innerHTML = `<label>Show <select onchange="foState.type=this.value;renderFo()">${opt("all", "Indices + stocks", foState.type)}${opt("index", "Indices only", foState.type)}${opt("stock", "Stocks only", foState.type)}</select></label>
+        <label>Buildup <select onchange="foState.buildup=this.value;renderFo()">${opt("", "Any", foState.buildup)}${["Long buildup", "Short buildup", "Short covering", "Long unwinding"].map((b) => opt(b, b, foState.buildup)).join("")}</select></label>
+        <label>Sort <select onchange="foState.sort=this.value;renderFo()">${opt("val", "Futures turnover", foState.sort)}${opt("chgUp", "Futures % gain", foState.sort)}${opt("chgDn", "Futures % loss", foState.sort)}${opt("oiUp", "OI % increase", foState.sort)}${opt("oiDn", "OI % decrease", foState.sort)}${opt("pcrHi", "PCR high → low", foState.sort)}${opt("pcrLo", "PCR low → high", foState.sort)}${opt("iv", "IV high → low", foState.sort)}${opt("live", "Live spot % change", foState.sort)}</select></label>
+        <label><input type="search" placeholder="Filter symbol" value="${esc(foState.q)}" oninput="foState.q=this.value;renderFoTable()" style="width:130px" /></label>`;
+    } else {
+      const syms = foData?.rows.map((r) => r.symbol) || [];
+      const c = foChain && !foChain.error ? foChain : null;
+      ctl.innerHTML = `<label>Symbol <input list="foSyms" value="${esc(foSym)}" style="width:130px" onchange="const v=this.value.trim().toUpperCase(); if (v) { foSym=v; loadChain(); }" /><datalist id="foSyms">${syms.map((x) => `<option value="${esc(x)}">`).join("")}</datalist></label>
+        ${c ? `<label>Expiry <select onchange="loadChain(this.value)">${c.expiries.map((e) => `<option value="${e}"${e === c.expiry ? " selected" : ""}>${expLabel(e)}</option>`).join("")}</select></label>` : ""}
+        <label>Strikes <select onchange="foState.strikes=this.value;renderFo()">${["10", "15", "25", "all"].map((v) => `<option value="${v}"${v === foState.strikes ? " selected" : ""}>${v === "all" ? "All" : `±${v} around ATM`}</option>`).join("")}</select></label>`;
+    }
+  }
+
+  function renderFo() {
+    foControls();
+    const out = document.getElementById("foOut");
+    if (foTab === "list") {
+      if (!foData) { out.innerHTML = `<div class="sm">Loading…</div>`; return; }
+      out.innerHTML = `<div class="sm" id="foLiveNote" style="margin-bottom:6px"></div><div class="table-wrap" style="max-height:560px;overflow:auto"><table>
+        <thead><tr><th>Symbol</th><th>Live spot</th><th>Future (near month)</th><th>Fut % chg</th><th>Premium / discount</th><th>Futures OI</th><th>OI change</th><th>Buildup</th><th>PCR</th><th>Max pain</th><th>Support (put OI)</th><th>Resistance (call OI)</th><th>ATM IV</th><th>Fut turnover</th></tr></thead>
+        <tbody id="foRows"></tbody></table></div>`;
+      renderFoTable();
+      return;
+    }
+    out.innerHTML = `<div id="chainBody"></div>`;
+    renderChain(document.getElementById("chainBody"));
+  }
+
+  function renderFoTable() {
+    const body = document.getElementById("foRows");
+    if (!body || !foData) return;
+    const q = foState.q.trim().toUpperCase();
+    let rows = foData.rows.filter((r) => (foState.type === "all" || r.type === foState.type) && (!foState.buildup || r.buildup === foState.buildup) && (!q || r.symbol.includes(q)));
+    const by = {
+      val: (r) => -r.futValCr, chgUp: (r) => -r.futChg, chgDn: (r) => r.futChg, oiUp: (r) => -(r.futOiChgPct ?? -1e9), oiDn: (r) => r.futOiChgPct ?? 1e9,
+      pcrHi: (r) => -(r.pcr ?? -1), pcrLo: (r) => r.pcr ?? 1e9, iv: (r) => -(r.atmIv ?? -1), live: (r) => -(r.live?.chg ?? -1e9),
+    }[foState.sort];
+    rows = [...rows].sort((a, b) => (foState.sort === "val" && a.type !== b.type ? (a.type === "index" ? -1 : 1) : by(a) - by(b)));
+    const note = document.getElementById("foLiveNote");
+    if (note) note.innerHTML = `${rows.length} of ${foData.count} shown · F&amp;O columns are ${dateLabel(foData.date)}'s close · live spot ${foData.liveAsOf ? `as of ${new Date(foData.liveAsOf).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })} IST` : "unavailable"} · click a symbol's <b>Chain</b> for its full option chain`;
+    body.innerHTML = rows.length ? rows.map((r) => `<tr>
+        <td><strong>${esc(r.symbol)}</strong> ${r.type === "index" ? `<span class="fotag nt">INDEX</span>` : ""}<div class="sm">Lot ${foNum(r.lot)}</div>
+          <div class="links"><a class="lnk" href="#" onclick="openChain('${esc(r.symbol)}');return false;">Chain</a>${r.type === "stock" ? checkLink(r.symbol) : ""}</div></td>
+        <td class="num">${liveCell(r.live)}<div class="sm">close ${foNum(r.spot)}</div></td>
+        <td class="num"><b>${foNum(r.fut)}</b><div class="sm">${expLabel(r.futExpiry)}</div></td>
+        <td class="num">${pct(r.futChg)}</td>
+        <td class="num">${foSigned(r.basis, foNum)}<div class="sm">${r.basisPct == null ? "" : `${r.basisPct > 0 ? "+" : ""}${r.basisPct}%`}</div></td>
+        <td class="num">${foBig(r.futOi)}</td>
+        <td class="num">${foSigned(r.futOiChg)}<div class="sm">${r.futOiChgPct == null ? "" : `${r.futOiChgPct > 0 ? "+" : ""}${r.futOiChgPct}%`}</div></td>
+        <td>${foTag(r.buildup)}</td>
+        <td class="num ${r.pcr == null ? "" : r.pcr >= 1.2 ? "up" : r.pcr <= 0.7 ? "down" : ""}">${r.pcr ?? "—"}</td>
+        <td class="num">${foNum(r.maxPain)}</td>
+        <td class="num up">${foNum(r.putWall)}</td>
+        <td class="num down">${foNum(r.callWall)}</td>
+        <td class="num">${r.atmIv == null ? "—" : r.atmIv + "%"}</td>
+        <td class="num">${crore(r.futValCr)}</td></tr>`).join("") : `<tr><td colspan="14" class="empty">No F&amp;O symbols match these filters.</td></tr>`;
+  }
+
+  function renderChain(box) {
+    const c = foChain;
+    if (!c) { box.innerHTML = `<div class="sm">Loading ${esc(foSym)} option chain…</div>`; return; }
+    if (c.error) { box.innerHTML = `<div class="warn">${esc(c.error)}</div>`; return; }
+    const st = c.stats || {};
+    const atmI = c.rows.findIndex((r) => r.strike === st.atm);
+    const n = foState.strikes === "all" ? Infinity : Number(foState.strikes);
+    const rows = n === Infinity || atmI < 0 ? c.rows : c.rows.slice(Math.max(0, atmI - n), atmI + n + 1);
+    const maxOi = Math.max(1, ...rows.flatMap((r) => [r.ce?.oi || 0, r.pe?.oi || 0]));
+    const w = (oi) => `--w:${Math.round(((oi || 0) / maxOi) * 100)}%`;
+    const iv = (x) => x == null ? "—" : x.toFixed(1);
+    const leg = (o, side) => o ? (side === "c"
+      ? `<td class="num oi c" style="${w(o.oi)}">${foBig(o.oi)}</td><td class="num">${foSigned(o.oiChg)}</td><td class="num">${foBig(o.vol)}</td><td class="num">${iv(o.iv)}</td><td class="num"><b>${foNum(o.ltp)}</b></td><td class="num">${foSigned(o.chg, foNum)}</td>`
+      : `<td class="num">${foSigned(o.chg, foNum)}</td><td class="num"><b>${foNum(o.ltp)}</b></td><td class="num">${iv(o.iv)}</td><td class="num">${foBig(o.vol)}</td><td class="num">${foSigned(o.oiChg)}</td><td class="num oi p" style="${w(o.oi)}">${foBig(o.oi)}</td>`)
+      : `<td colspan="6" class="sm" style="text-align:center">—</td>`;
+    box.innerHTML = `
+      <div class="fostats">
+        <div><span>${esc(c.symbol)}${c.type === "index" ? " (index)" : ""} live</span> ${liveCell(c.live)}</div>
+        <div><span>Spot at close</span> <b>${foNum(c.spot)}</b></div>
+        <div><span>Lot size</span> <b>${foNum(c.lot)}</b></div>
+        <div><span>Expiry</span> <b>${expLabel(c.expiry)}</b></div>
+        <div><span>PCR</span> <b class="${st.pcr >= 1.2 ? "up" : st.pcr <= 0.7 ? "down" : ""}">${st.pcr ?? "—"}</b></div>
+        <div><span>Max pain</span> <b>${foNum(st.maxPain)}</b></div>
+        <div><span>Support (max put OI)</span> <b class="up">${foNum(st.putWall)}</b></div>
+        <div><span>Resistance (max call OI)</span> <b class="down">${foNum(st.callWall)}</b></div>
+        <div><span>ATM IV</span> <b>${st.atmIv == null ? "—" : st.atmIv + "%"}</b></div>
+        <div><span>Call OI chg</span> ${foSigned(st.ceOiChg)} <span>Put OI chg</span> ${foSigned(st.peOiChg)}</div>
+        ${c.type === "stock" ? `<div class="links">${checkLink(c.symbol)}${chartLinks(c.symbol, document.getElementById("interval").value)}</div>` : ""}
+      </div>
+      <div class="table-wrap" style="margin-bottom:10px"><table>
+        <thead><tr><th>Futures contract</th><th>Price</th><th>% chg</th><th>Premium vs spot</th><th>OI</th><th>OI change</th><th>Buildup</th><th>Volume (contracts)</th><th>Turnover</th></tr></thead>
+        <tbody>${c.futures.map((f) => `<tr><td><b>${esc(c.symbol)} ${expLabel(f.expiry)} FUT</b></td><td class="num"><b>${foNum(f.close)}</b></td><td class="num">${pct(f.chg)}</td><td class="num">${foSigned(f.basis, foNum)}</td><td class="num">${foBig(f.oi)}</td><td class="num">${foSigned(f.oiChg)}</td><td>${foTag(f.buildup)}</td><td class="num">${foBig(f.vol)}</td><td class="num">${crore(f.valCr)}</td></tr>`).join("") || `<tr><td colspan="9" class="empty">No futures.</td></tr>`}</tbody>
+      </table></div>
+      <div class="table-wrap" style="max-height:620px;overflow:auto"><table class="chain">
+        <thead><tr><th colspan="6" style="text-align:center;color:var(--sell)">CALLS (CE)</th><th></th><th colspan="6" style="text-align:center;color:var(--buy)">PUTS (PE)</th></tr>
+          <tr><th>OI</th><th>OI chg</th><th>Volume</th><th>IV</th><th>LTP</th><th>Chg</th><th style="text-align:center">Strike</th><th>Chg</th><th>LTP</th><th>IV</th><th>Volume</th><th>OI chg</th><th>OI</th></tr></thead>
+        <tbody>${rows.map((r) => {
+          const itmC = r.strike < c.spot, itmP = r.strike > c.spot;
+          return `<tr class="${r.strike === st.atm ? "atm" : ""}">${leg(r.ce, "c").replace(/<td class="num(?! oi)/g, itmC ? '<td class="num itm' : '<td class="num')}<td class="k">${foNum(r.strike)}${r.strike === st.maxPain ? `<div class="sm">max pain</div>` : ""}</td>${leg(r.pe, "p").replace(/<td class="num(?! oi)/g, itmP ? '<td class="num itm' : '<td class="num')}</tr>`;
+        }).join("")}</tbody>
+      </table></div>
+      <div class="sm" style="margin-top:6px">${esc(c.symbol)} options at ${dateLabel(c.date)}'s close. OI and volume in shares/units (divide by lot size ${foNum(c.lot)} for lots). Shaded cells are in the money; the blue line marks the at-the-money strike. Bar length = OI relative to the largest strike shown.</div>`;
+  }
+
+  // Live spot prices move during market hours; F&O data itself updates once a day.
+  setInterval(() => {
+    if (!document.getElementById("foBox").open || document.hidden || !marketOpen()) return;
+    if (foTab === "list" && foData) loadFo(true);
+    else if (foTab === "chain" && foChain && !foChain.error) loadChain(foChain.expiry, true);
+  }, 60000);
+  if (document.getElementById("foBox").open) loadFo();
 </script>
 </body>
 </html>
