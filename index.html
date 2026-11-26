@@ -1570,7 +1570,7 @@
     const pos = kitePos.filter((x) => x.quantity !== 0);
     bar.innerHTML = kite.connected
       ? `<span class="kite-on">● Kite connected${kite.user ? ` as <b>${esc(kite.user.name)}</b> (${esc(kite.user.id)})` : ""}</span>
-         <span class="sm">Live premiums from Kite · ${pos.length} open option position${pos.length === 1 ? "" : "s"}${pos.length ? `, P&amp;L <b class="${pos.reduce((s, x) => s + x.pnl, 0) >= 0 ? "up" : "down"}">₹${foNum(pos.reduce((s, x) => s + x.pnl, 0))}</b>` : ""}</span>
+         <span class="sm">${kiteQ.noMarketData ? `<b>Personal (free) Kite plan:</b> orders and positions work, but Kite gives no live prices on this plan, so premiums are estimates. Check the price in Kite before ordering` : "Live premiums from Kite"} · ${pos.length} open option position${pos.length === 1 ? "" : "s"}${pos.length ? `, P&amp;L <b class="${pos.reduce((s, x) => s + x.pnl, 0) >= 0 ? "up" : "down"}">₹${foNum(pos.reduce((s, x) => s + x.pnl, 0))}</b>` : ""}</span>
          <a class="lnk kite" href="https://kite.zerodha.com/orders" target="_blank" rel="noopener">Kite orders ↗</a>
          <button onclick="kiteLogout()">Disconnect</button> ${kiteMsg}`
       : `<a class="primary kite-btn" href="/api/kite/login">Connect Zerodha Kite</a> <span class="sm">Log in once a day (Kite tokens expire at 6 am) to get live option premiums and Buy / Exit buttons.${kite.error ? ` ${esc(kite.error)}` : ""}</span> ${kiteMsg}`;
@@ -1613,6 +1613,12 @@
     const key = kKey(sym, o), q = kiteQ.options?.[key];
     if (!q) return `<div class="kite-live sm">Kite: no live quote for this contract yet.</div>`;
     const pos = kitePos.find((x) => x.tradingsymbol === q.tradingsymbol && x.quantity !== 0);
+    if (q.ltp == null) {
+      const est = o.now ?? o.entry;
+      return `<div class="kite-live"><span class="kite-tag">KITE</span> <b>${esc(q.tradingsymbol)}</b> <span class="sm">· lot ${q.lot} · no live price on the Personal plan; estimate ≈ ₹${foNum(est)}, check it in Kite</span>
+      ${pos ? `<div>Your position: <b>${pos.quantity > 0 ? "+" : ""}${pos.quantity}</b> (${pos.quantity / q.lot} lot${Math.abs(pos.quantity / q.lot) === 1 ? "" : "s"}, ${esc(pos.product)}) @ ₹${foNum(pos.avg)}${pos.ltp ? ` · LTP ₹${foNum(pos.ltp)}` : ""} · P&amp;L <b class="${pos.pnl >= 0 ? "up" : "down"}">₹${foNum(pos.pnl)}</b></div>` : ""}
+      <div class="links">${canBuy ? `<button class="kbuy" onclick="kiteOrder('BUY','${esc(key)}',${Number(est) || 0})">Buy ${esc(o.type)}…</button>` : ""}${pos && pos.quantity > 0 ? `<button class="ksell" onclick="kiteOrder('SELL','${esc(key)}',${Number(est) || 0})">Exit position…</button>` : ""}</div></div>`;
+    }
     const chg = q.prevClose ? Math.round((q.ltp / q.prevClose - 1) * 1000) / 10 : null;
     const diff = o.entry ? Math.round((q.ltp / (o.now ?? o.entry) - 1) * 1000) / 10 : null;
     return `<div class="kite-live"><span class="kite-tag">KITE LIVE</span> <b>${esc(q.tradingsymbol)}</b> LTP <b>₹${foNum(q.ltp)}</b>${chg != null ? ` <span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "+" : ""}${chg}%</span>` : ""}
@@ -1620,19 +1626,21 @@
       ${pos ? `<div>Your position: <b>${pos.quantity > 0 ? "+" : ""}${pos.quantity}</b> (${pos.quantity / q.lot} lot${Math.abs(pos.quantity / q.lot) === 1 ? "" : "s"}, ${esc(pos.product)}) @ ₹${foNum(pos.avg)} · P&amp;L <b class="${pos.pnl >= 0 ? "up" : "down"}">₹${foNum(pos.pnl)}</b></div>` : ""}
       <div class="links">${canBuy ? `<button class="kbuy" onclick="kiteOrder('BUY','${esc(key)}')">Buy ${esc(o.type)}…</button>` : ""}${pos && pos.quantity > 0 ? `<button class="ksell" onclick="kiteOrder('SELL','${esc(key)}')">Exit position…</button>` : ""}</div></div>`;
   }
-  function kiteOrder(side, key) {
+  function kiteOrder(side, key, est) {
     const q = kiteQ.options?.[key];
     if (!q) return;
     const pos = kitePos.find((x) => x.tradingsymbol === q.tradingsymbol && x.quantity > 0);
     const lots = side === "SELL" && pos ? Math.round(pos.quantity / q.lot) : 1;
-    const px = side === "BUY" ? (q.ask || q.ltp) : (q.bid || q.ltp);
+    const px = (side === "BUY" ? (q.ask || q.ltp) : (q.bid || q.ltp || pos?.ltp)) || est || 0;
     const dlg = document.getElementById("kiteDlg");
     dlg.dataset.symbol = q.tradingsymbol; dlg.dataset.side = side; dlg.dataset.lot = q.lot;
     document.getElementById("kdTitle").innerHTML = `<span class="${side === "BUY" ? "up" : "down"}">${side === "BUY" ? "BUY" : "SELL (exit)"}</span> ${esc(q.tradingsymbol)}`;
     document.getElementById("kdLots").value = lots;
     document.getElementById("kdPrice").value = px.toFixed(2);
     document.getElementById("kdProduct").value = pos?.product === "NRML" ? "NRML" : "MIS";
-    document.getElementById("kdQuote").textContent = `LTP ₹${foNum(q.ltp)} · bid ${foNum(q.bid)} / ask ${foNum(q.ask)} · lot size ${q.lot}`;
+    document.getElementById("kdQuote").textContent = q.ltp == null
+      ? `No live price on the Personal Kite plan. The limit price is an estimate: check the real bid/ask in Kite and adjust it before placing. Lot size ${q.lot}`
+      : `LTP ₹${foNum(q.ltp)} · bid ${foNum(q.bid)} / ask ${foNum(q.ask)} · lot size ${q.lot}`;
     document.getElementById("kdResult").innerHTML = "";
     document.getElementById("kdGo").disabled = false;
     kdTotal();

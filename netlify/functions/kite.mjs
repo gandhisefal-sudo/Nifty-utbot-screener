@@ -79,7 +79,16 @@ export default async (req) => {
     const ids = [...new Set([...Object.values(resolved).map((r) => `NFO:${r.tradingsymbol}`), ...spots.map(K.spotId)])];
     if (!ids.length) return json({ options: {}, spots: {} });
     let q;
-    try { q = await K.quotes(token, ids); } catch (e) { return kiteFail(e); }
+    try { q = await K.quotes(token, ids); } catch (e) {
+      // Free "Personal" Kite Connect apps can log in, read positions and place orders, but get no market data
+      // (PermissionException). Still return the exact Kite contracts so the page can offer Buy / Exit with estimated prices.
+      if (e?.type !== "TokenException" && (e?.type === "PermissionException" || e?.status === 403)) {
+        const options = {};
+        for (const [key, row] of Object.entries(resolved)) options[key] = { tradingsymbol: row.tradingsymbol, lot: row.lot, tick: row.tick, ltp: null, bid: null, ask: null };
+        return json({ at: new Date().toISOString(), noMarketData: true, options, spots: {} });
+      }
+      return kiteFail(e);
+    }
     const options = {};
     for (const [key, row] of Object.entries(resolved)) {
       const d = q[`NFO:${row.tradingsymbol}`];
