@@ -188,6 +188,19 @@
     .ot-log td, .ot-log th { padding: 3px 5px; position: static; }
     .ot-alerts { font-size: 12px; margin: 0 0 8px; max-height: 120px; overflow: auto; }
     .ot-alerts div { padding: 2px 0; }
+    .ot-kitebar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #5a2a1c; background: #1d1310; border-radius: 8px; }
+    .kite-btn { text-decoration: none; border-radius: 6px; background: #ff6d3a !important; color: #1a0d07 !important; }
+    .kite-on { color: #ff8a65; font-weight: 700; }
+    .kite-tag { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 3px; background: #3a1a12; color: #ff8a65; border: 1px solid #5a2a1c; vertical-align: middle; }
+    .kite-live { margin-top: 5px; padding: 5px 7px; border: 1px solid #5a2a1c; border-radius: 6px; background: #170f0c; font-size: 12px; }
+    .kite-live button { padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .kite-live .kbuy { background: var(--buy); color: #04220f; border: none; }
+    .kite-live .ksell { background: var(--sell); color: #2a0610; border: none; }
+    .kite-dlg { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; max-width: 460px; width: 92vw; }
+    .kite-dlg::backdrop { background: rgba(0,0,0,.6); }
+    .kite-dlg h3 { margin: 0 0 4px; font-size: 16px; }
+    .kd-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 10px 0; }
+    .kd-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
     table.chain td, table.chain th { padding: 5px 8px; font-size: 12px; text-align: right; }
     table.chain td.k { text-align: center; font-weight: 800; background: #0e1628; }
     table.chain tr.atm td { border-top: 2px solid var(--accent); }
@@ -296,6 +309,22 @@
     <div id="checkOut" class="sm">Uses the timeframe and UT Bot settings selected above.</div>
   </div>
 
+  <dialog id="kiteDlg" class="kite-dlg">
+    <form method="dialog" onsubmit="return false">
+      <h3 id="kdTitle"></h3>
+      <div class="sm" id="kdQuote"></div>
+      <div class="kd-row">
+        <label>Lots <input type="number" id="kdLots" min="1" max="50" value="1" oninput="kdTotal()" /></label>
+        <label>Limit price ₹ <input type="number" id="kdPrice" step="0.05" min="0.05" style="width:100px" oninput="kdTotal()" /></label>
+        <label>Product <select id="kdProduct" onchange="kdTotal()"><option value="MIS">MIS (intraday)</option><option value="NRML">NRML (carry)</option></select></label>
+      </div>
+      <div id="kdTotal" class="sm"></div>
+      <div class="sm warn">This places a real order in your Zerodha account. Check the contract, quantity and price.</div>
+      <div class="kd-row"><button class="primary" id="kdGo" onclick="kdSubmit()">Place order in Kite</button><button onclick="document.getElementById('kiteDlg').close()">Close</button></div>
+      <div id="kdResult"></div>
+    </form>
+  </dialog>
+
   <details class="newsbox" id="otBox" open ontoggle="if (this.open && !otData) loadOt()">
     <summary>🎯 Options trigger: live CE / PE buy signals with early exit, for any F&amp;O stock or index <span class="sm" id="otMeta"></span></summary>
     <div class="newsbar">
@@ -312,12 +341,14 @@
       <label title="Beep and show a browser notification on every new trigger, Target 1 and exit."><input type="checkbox" id="otAlert" checked onchange="saveOt(); if (this.checked) askNotify()" /> 🔔 Alerts</label>
       <button class="primary" onclick="loadOt()">Refresh</button>
     </div>
+    <div class="ot-kitebar" id="kiteBar"><span class="sm">Checking Zerodha Kite…</span></div>
     <div class="ot-alerts" id="otAlerts"></div>
     <div id="otOut"><div class="sm">Open this panel to load option triggers.</div></div>
     <div class="sm" style="margin-top:8px;line-height:1.6"><b>How it works:</b> the tool waits for the <b>opening range</b> (by default 9:15–9:30, your 15-minute candle), then watches the <b>entry candles</b> (5 min by default). <b class="up">BUY CE</b> triggers when the price breaks <b>above the opening-range high</b>, <b class="down">BUY PE</b> when it breaks <b>below the low</b>, and only when enough indicators agree: UT Bot, Supertrend, VWAP (stocks only, since indices have no volume data), EMA 9/21, RSI, MACD and the higher-timeframe UT Bot trend. With <b>Live</b> trigger the signal fires on the current price, without waiting for the candle to close.
       <b>Early exit:</b> once in a trade, every closed candle is checked for indicators turning against it (UT Bot or Supertrend flip, price back through VWAP, EMA 9/21 cross, RSI back past 45/55, MACD turning). When your chosen number have turned, the card says <b>EXIT NOW</b>. The stop is the tightest of the opposite side of the range, 1.5×ATR and the UT Bot stop. At <b>Target 1</b> (1× risk) book half and the stop moves to cost; <b>Target 2</b> is 2× risk. Nothing new after 2:45 pm; everything is closed at 3:15 pm. After an exit, the same side re-arms only once price returns inside the range or the UT Bot flips again (max 3 trades per side per day).
       <b>Beating the slippage:</b> each armed card shows the exact contract and the spot level <i>before</i> it triggers. Set a price alert on the spot level in your broker app and keep the order ready, or place a stop-limit buy on the option near the estimated premium, so you aren't reacting after the move.
-      <b>Option prices are estimates:</b> NSE doesn't allow automated access to its live option chain, so the premium, stop and targets in ₹ are worked out (Black-Scholes) from the live spot price and the option's implied volatility at the last session's close. Expect them to differ from the live premium by a few percent, more on volatile days and near expiry. Check the real premium in your broker before ordering. Spot prices come from Yahoo Finance and can lag the exchange by a few seconds to a minute. This is a rule-based tool, not investment advice; options can lose their whole premium quickly.</div>
+      <b>Zerodha Kite:</b> click <b>Connect Zerodha Kite</b> and log in (once a day; Kite logins expire at 6 am). Each contract then shows its <b>real live premium</b>, bid/ask and your open position, plus a <b>Buy</b> button and an <b>Exit position</b> button. Each button opens a confirmation box: you check the lots, limit price and product (MIS intraday or NRML), and only "Place order in Kite" sends the order. Nothing is ever ordered automatically, and only limit orders are used, so you never get filled far from your price. Your Kite login is kept only in your own browser, not on the server.
+      <b>Option prices are estimates</b> when Kite isn't connected: NSE doesn't allow automated access to its live option chain, so the premium, stop and targets in ₹ are worked out (Black-Scholes) from the live spot price and the option's implied volatility at the last session's close. Expect them to differ from the live premium by a few percent, more on volatile days and near expiry. Check the real premium in your broker before ordering. Spot prices come from Yahoo Finance and can lag the exchange by a few seconds to a minute. This is a rule-based tool, not investment advice; options can lose their whole premium quickly.</div>
   </details>
 
   <details class="newsbox" id="sectorBox" open ontoggle="if (this.open && !sectorData) loadSectors()">
@@ -1515,6 +1546,116 @@
   }, 60000);
   if (document.getElementById("foBox").open) loadFo();
 
+  // ---- Zerodha Kite: live premiums + confirmed one-click orders ----
+  let kite = { configured: false, connected: false }, kiteQ = { options: {}, spots: {} }, kitePos = [], kiteBusy = false, kiteMsg = "";
+  const kKey = (sym, o) => `${sym}|${o.expiry}|${Number(o.strike)}|${o.type}`;
+  (function kiteInit() {
+    const p = new URLSearchParams(location.search);
+    const k = p.get("kite");
+    if (k) {
+      kiteMsg = k === "connected" ? `<span class="up">✓ Kite connected.</span>` : k === "cancelled" ? `<span class="warn">Kite login was cancelled.</span>` : `<span class="warn">Kite login failed: ${esc(p.get("msg") || "unknown error")}</span>`;
+      p.delete("kite"); p.delete("msg");
+      history.replaceState(null, "", location.pathname + (p.toString() ? `?${p}` : "") + location.hash);
+    }
+    kiteStatus();
+  })();
+  async function kiteStatus() {
+    try { kite = await (await fetch("/api/kite/status", { cache: "no-store" })).json(); } catch { kite = { configured: false, connected: false }; }
+    renderKiteBar();
+    if (kite.connected) { await kiteRefresh(); if (otData) renderOt(); }
+  }
+  function renderKiteBar() {
+    const bar = document.getElementById("kiteBar");
+    if (!kite.configured) { bar.innerHTML = `<span class="sm"><b>Zerodha Kite not set up yet.</b> Premiums below are estimates. To get live premiums and Buy / Exit buttons, add your Kite Connect app's <b>KITE_API_KEY</b> and <b>KITE_API_SECRET</b> as environment variables in Netlify and redeploy.</span>`; return; }
+    const pos = kitePos.filter((x) => x.quantity !== 0);
+    bar.innerHTML = kite.connected
+      ? `<span class="kite-on">● Kite connected${kite.user ? ` as <b>${esc(kite.user.name)}</b> (${esc(kite.user.id)})` : ""}</span>
+         <span class="sm">Live premiums from Kite · ${pos.length} open option position${pos.length === 1 ? "" : "s"}${pos.length ? `, P&amp;L <b class="${pos.reduce((s, x) => s + x.pnl, 0) >= 0 ? "up" : "down"}">₹${foNum(pos.reduce((s, x) => s + x.pnl, 0))}</b>` : ""}</span>
+         <a class="lnk kite" href="https://kite.zerodha.com/orders" target="_blank" rel="noopener">Kite orders ↗</a>
+         <button onclick="kiteLogout()">Disconnect</button> ${kiteMsg}`
+      : `<a class="primary kite-btn" href="/api/kite/login">Connect Zerodha Kite</a> <span class="sm">Log in once a day (Kite tokens expire at 6 am) to get live option premiums and Buy / Exit buttons.${kite.error ? ` ${esc(kite.error)}` : ""}</span> ${kiteMsg}`;
+  }
+  async function kiteLogout() {
+    try { await fetch("/api/kite/logout", { method: "POST" }); } catch {}
+    kite.connected = false; kiteQ = { options: {}, spots: {} }; kitePos = []; kiteMsg = "";
+    renderKiteBar(); if (otData) renderOt();
+  }
+  function kiteLost(r) {
+    if (!r?.reconnect) return false;
+    kite.connected = false; kiteMsg = `<span class="warn">${esc(r.error)}</span>`; renderKiteBar();
+    return true;
+  }
+  async function kiteRefresh() {
+    if (!kite.connected || !otData || kiteBusy) return;
+    kiteBusy = true;
+    try {
+      const contracts = [];
+      for (const sym of otData.order) {
+        const r = otData.results[sym];
+        if (!r || r.error) continue;
+        for (const o of [r.options?.pending?.CE, r.options?.pending?.PE, ...r.trades.filter((t) => t.open).map((t) => t.option)]) {
+          if (o) contracts.push({ name: sym, expiry: o.expiry, strike: o.strike, type: o.type });
+        }
+      }
+      const [q, p] = await Promise.all([
+        fetch("/api/kite/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contracts, spots: otData.order }) }).then((x) => x.json()),
+        fetch("/api/kite/positions", { cache: "no-store" }).then((x) => x.json()),
+      ]);
+      if (kiteLost(q) || kiteLost(p)) return;
+      if (!q.error) kiteQ = q;
+      if (!p.error) kitePos = p.positions || [];
+      renderKiteBar();
+    } catch {} finally { kiteBusy = false; }
+  }
+  // Live Kite line under a contract: real premium, bid/ask, your position and the Buy / Exit buttons.
+  function kiteLine(sym, o, canBuy) {
+    if (!kite.connected || !o) return "";
+    const key = kKey(sym, o), q = kiteQ.options?.[key];
+    if (!q) return `<div class="kite-live sm">Kite: no live quote for this contract yet.</div>`;
+    const pos = kitePos.find((x) => x.tradingsymbol === q.tradingsymbol && x.quantity !== 0);
+    const chg = q.prevClose ? Math.round((q.ltp / q.prevClose - 1) * 1000) / 10 : null;
+    const diff = o.entry ? Math.round((q.ltp / (o.now ?? o.entry) - 1) * 1000) / 10 : null;
+    return `<div class="kite-live"><span class="kite-tag">KITE LIVE</span> <b>${esc(q.tradingsymbol)}</b> LTP <b>₹${foNum(q.ltp)}</b>${chg != null ? ` <span class="${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "+" : ""}${chg}%</span>` : ""}
+      <span class="sm">· bid ${foNum(q.bid)} / ask ${foNum(q.ask)} · ₹${foNum(Math.round(q.ltp * q.lot))} per lot${diff != null && Math.abs(diff) >= 1 ? ` · ${diff > 0 ? "+" : ""}${diff}% vs estimate` : ""}</span>
+      ${pos ? `<div>Your position: <b>${pos.quantity > 0 ? "+" : ""}${pos.quantity}</b> (${pos.quantity / q.lot} lot${Math.abs(pos.quantity / q.lot) === 1 ? "" : "s"}, ${esc(pos.product)}) @ ₹${foNum(pos.avg)} · P&amp;L <b class="${pos.pnl >= 0 ? "up" : "down"}">₹${foNum(pos.pnl)}</b></div>` : ""}
+      <div class="links">${canBuy ? `<button class="kbuy" onclick="kiteOrder('BUY','${esc(key)}')">Buy ${esc(o.type)}…</button>` : ""}${pos && pos.quantity > 0 ? `<button class="ksell" onclick="kiteOrder('SELL','${esc(key)}')">Exit position…</button>` : ""}</div></div>`;
+  }
+  function kiteOrder(side, key) {
+    const q = kiteQ.options?.[key];
+    if (!q) return;
+    const pos = kitePos.find((x) => x.tradingsymbol === q.tradingsymbol && x.quantity > 0);
+    const lots = side === "SELL" && pos ? Math.round(pos.quantity / q.lot) : 1;
+    const px = side === "BUY" ? (q.ask || q.ltp) : (q.bid || q.ltp);
+    const dlg = document.getElementById("kiteDlg");
+    dlg.dataset.symbol = q.tradingsymbol; dlg.dataset.side = side; dlg.dataset.lot = q.lot;
+    document.getElementById("kdTitle").innerHTML = `<span class="${side === "BUY" ? "up" : "down"}">${side === "BUY" ? "BUY" : "SELL (exit)"}</span> ${esc(q.tradingsymbol)}`;
+    document.getElementById("kdLots").value = lots;
+    document.getElementById("kdPrice").value = px.toFixed(2);
+    document.getElementById("kdProduct").value = pos?.product === "NRML" ? "NRML" : "MIS";
+    document.getElementById("kdQuote").textContent = `LTP ₹${foNum(q.ltp)} · bid ${foNum(q.bid)} / ask ${foNum(q.ask)} · lot size ${q.lot}`;
+    document.getElementById("kdResult").innerHTML = "";
+    document.getElementById("kdGo").disabled = false;
+    kdTotal();
+    dlg.showModal();
+  }
+  function kdTotal() {
+    const dlg = document.getElementById("kiteDlg");
+    const lots = parseInt(document.getElementById("kdLots").value, 10) || 0, px = parseFloat(document.getElementById("kdPrice").value) || 0, lot = Number(dlg.dataset.lot);
+    document.getElementById("kdTotal").innerHTML = `${lots * lot} qty · ≈ <b>₹${foNum(Math.round(lots * lot * px))}</b> · LIMIT order, ${document.getElementById("kdProduct").value === "MIS" ? "intraday (MIS)" : "carry forward (NRML)"}`;
+  }
+  async function kdSubmit() {
+    const dlg = document.getElementById("kiteDlg"), btn = document.getElementById("kdGo"), out = document.getElementById("kdResult");
+    btn.disabled = true; out.innerHTML = `<span class="sm">Sending to Kite…</span>`;
+    try {
+      const r = await (await fetch("/api/kite/order", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        tradingsymbol: dlg.dataset.symbol, side: dlg.dataset.side, lots: document.getElementById("kdLots").value,
+        price: document.getElementById("kdPrice").value, product: document.getElementById("kdProduct").value }) })).json();
+      if (kiteLost(r) || r.error) { out.innerHTML = `<span class="warn">${esc(r.error)}</span>`; btn.disabled = false; return; }
+      out.innerHTML = `<span class="up">✓ Order placed: ${esc(r.side)} ${r.quantity} ${esc(r.tradingsymbol)} @ ₹${foNum(r.price)} (order ${esc(r.orderId)}). Check its status in <a href="https://kite.zerodha.com/orders" target="_blank" rel="noopener">Kite orders</a>; a limit order fills only at your price or better.</span>`;
+      setTimeout(() => kiteRefresh().then(() => otData && renderOt()), 2500);
+    } catch (e) { out.innerHTML = `<span class="warn">Couldn't reach the server: ${esc(e.message)}</span>`; btn.disabled = false; }
+  }
+
   // ---- Options trigger: live CE / PE buys with early exit ----
   let otData = null, otLoading = false, otSeeded = false;
   const otSeen = new Set(), otLiveSeen = new Map();
@@ -1575,6 +1716,7 @@
       otData = { ...(meta || {}), order: syms, results };
       otAlertsCheck();
       renderOt();
+      if (kite.connected) kiteRefresh().then(renderOt);
     } finally { otLoading = false; }
   }
 
@@ -1630,6 +1772,11 @@
     if (!o) return `<span class="sm">No option chain found for this symbol.</span>`;
     return `<b>${esc(sym)} ${expLabel(o.expiry)} ${foNum(o.strike)} ${o.type}</b> <span class="sm">${o.monthly ? "monthly" : "weekly"} · lot ${foNum(o.lot)}${o.ivEstimated ? " · IV assumed" : ` · IV ${o.iv}%`}</span>`;
   }
+  // Live spot: Kite's when connected, otherwise Yahoo's.
+  function otSpot(r) {
+    const k = kite.connected && kiteQ.spots?.[r.symbol];
+    return k ? `<b>${foNum(k.ltp)}</b> ${k.chg != null ? pct(k.chg) : ""} <span class="kite-tag" title="Live spot from Kite">KITE</span>` : `<b>${foNum(r.ltp)}</b> ${r.quote?.changePct != null ? pct(r.quote.changePct) : ""}`;
+  }
   function otTriggerRow(r, side) {
     const isCe = side === "CE", lvl = isCe ? r.or.high : r.or.low, rd = r.readiness[side];
     const o = r.options?.pending?.[side];
@@ -1642,14 +1789,14 @@
     return `<span class="${isCe ? "up" : "down"}"><b>${isCe ? "▲ BUY CE" : "▼ BUY PE"}</b></span>
       <div>spot ${isCe ? "above" : "below"} <b>${foNum(lvl)}</b> <span class="sm" title="${esc(tip)}">(${note})</span>
       ${o ? `<div class="ot-order">${otContract(o, r.symbol)}<br>Est. premium at trigger <b>${otRs(o.entry)}</b> · Δ ${o.delta} · ≈ ${otRs(o.capitalPerLot)} per lot · stop ≈ ${otRs(o.stop)} · T1 ≈ ${otRs(o.t1)}
-        <div class="sm">Get ready: price alert on ${esc(r.symbol)} at ${foNum(lvl)}, or a stop-limit buy around ${otRs(o.entry)} (limit ${otRs(Math.round(o.entry * 1.02 * 20) / 20)}). Check the live premium first.</div></div>` : ""}</div>`;
+        <div class="sm">Get ready: price alert on ${esc(r.symbol)} at ${foNum(lvl)}, or a stop-limit buy around ${otRs(o.entry)} (limit ${otRs(Math.round(o.entry * 1.02 * 20) / 20)}). ${kite.connected ? "Prices above are estimates; the Kite line below is the real market." : "Check the live premium first."}</div>${kiteLine(r.symbol, o, true)}</div>` : ""}</div>`;
   }
   function otTradeBox(t, r) {
     const o = t.option, isCe = t.type === "CE";
     const need = otData.exitCount || 2;
     return `<div class="ot-box">
       <div><b class="${isCe ? "up" : "down"}">BUY ${t.type}</b> since ${ist(t.entryTime)} ${t.live ? `<span class="warn" title="Triggered on the live price; the candle hasn't closed yet and can still close back inside the range.">· live, candle still open</span>` : ""}</div>
-      ${o ? `<div>${otContract(o, r.symbol)}</div>` : ""}
+      ${o ? `<div>${otContract(o, r.symbol)}</div>${kiteLine(r.symbol, o, true)}` : ""}
       <div class="ot-trig">
         <span class="sm">Entry</span><span>spot <b>${foNum(t.entry)}</b>${o ? ` · premium ≈ <b>${otRs(o.entry)}</b> (Δ ${o.delta})` : ""} · ${t.score}/${t.maxScore} confirmed</span>
         <span class="sm">Stop</span><span>spot <b>${foNum(t.stop)}</b>${t.t1Hit ? " (moved to cost)" : o ? ` · ≈ ${otRs(o.stop)}` : ""}</span>
@@ -1664,12 +1811,11 @@
     const open = r.trades.find((t) => t.open);
     const exitNow = open && open.warnings.length >= (otData.exitCount || 2);
     const cls = exitNow ? "exitnow" : open ? open.type.toLowerCase() : "";
-    const q = r.quote || {};
     const done = r.trades.filter((t) => !t.open);
     const tot = done.reduce((s, t) => s + (t.option?.exit != null && t.option?.entry != null ? (t.option.exit - t.option.entry) * (t.option.lot || 0) : 0), 0);
     const orLabel = r.or ? `${ist(r.or.start)}–${ist(r.or.end)}` : "";
     return `<div class="ot-card ${cls} ${otData.flash?.has(sym) ? "alert" : ""}">
-      <div class="ot-head"><span><strong>${esc(sym)}</strong> ${r.type === "index" ? `<span class="fotag nt">INDEX</span>` : ""} <b>${foNum(r.ltp)}</b> ${q.changePct != null ? pct(q.changePct) : ""}</span>${otStatus(r)}</div>
+      <div class="ot-head"><span><strong>${esc(sym)}</strong> ${r.type === "index" ? `<span class="fotag nt">INDEX</span>` : ""} ${otSpot(r)}</span>${otStatus(r)}</div>
       <div class="ot-mtf">${r.mtf.map((m) => `<span title="UT Bot / Supertrend direction on ${m.tf}">${m.tf} ${otDir(m.ut)}${otDir(m.st)}</span>`).join("")}<span>${r.sessionDate !== todayIst() ? `session ${dateLabel(r.sessionDate)}` : ""}</span></div>
       ${!r.fno ? `<div class="warn">${esc(sym)} has no F&amp;O contracts on NSE, so only the spot trigger is shown.</div>` : ""}
       ${r.or ? `<div class="sm">Opening range ${orLabel}: high <b>${foNum(r.or.high)}</b> · low <b>${foNum(r.or.low)}</b>${r.or.complete ? "" : " (still forming)"}</div>` : ""}
