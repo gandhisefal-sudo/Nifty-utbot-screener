@@ -139,6 +139,7 @@
     .itile .in { font-size: 11px; font-weight: 800; text-transform: uppercase; line-height: 1.25; min-height: 28px; }
     .itile .iv { font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 4px; }
     .itile .ic { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .itile .ic .ip { font-size: 12px; font-weight: 700; opacity: .9; }
     .itile .ib { font-size: 10px; } .itile .ib .a { color: #bbf7d0; } .itile .ib .d { color: #fecaca; }
     .itile.fu { animation: flashUp 1.2s ease-out; } .itile.fd { animation: flashDown 1.2s ease-out; }
     .itile .iv.fu { color: #bbf7d0; } .itile .iv.fd { color: #fecaca; }
@@ -373,18 +374,20 @@
     <div class="sm" style="margin-top:8px;line-height:1.6"><b>NSE sector indices</b> shows NIFTY 50, Sensex, Bank Nifty and every NSE sectoral and thematic index at its live level, split into bullish (up) and bearish (down) sectors. ▲/▼ counts are how many of the index's stocks are up and down. Tiles marked <b>CUSTOM</b> are sectors NSE has no index for (Insurance, Cement, Power, Telecom, etc.), so their move is the average of their Nifty 500 stocks. Tiles marked <b>≈</b> use the average of their stocks because the index's own history wasn't available for that period.<br>The other two tabs are built from the <b>Nifty 500</b>, grouped by NSE's sector classification. A sector's move is the <b>average move of its stocks</b> (each stock counts equally), so it shows how the typical stock in the sector did. The green/red bar under each sector is its breadth: the share of its stocks that are up. <b>Today</b> uses live quotes (refreshed every minute while the market is open); <b>1 week</b> and <b>1 month</b> use NSE's end-of-day closing prices. Click a sector to see every stock in it. Trading with the strongest sector (buys) or the weakest one (shorts) tends to give signals more follow-through.</div>
   </details>
 
-  <details class="newsbox" id="foBox" open ontoggle="if (this.open && !foData) loadFo()">
+  <details class="newsbox" id="foBox" open ontoggle="if (this.open && !foData) loadOrb()">
     <summary>📈 Futures &amp; Options: every F&amp;O stock and index <span class="sm" id="foMeta"></span></summary>
     <div class="newsbar">
       <span class="tabs" style="margin:0" id="foTabs">
-        <button class="on" data-fo="list">📋 All F&amp;O: futures, OI buildup, PCR</button>
+        <button class="on" data-fo="orb">⚡ Live trigger: 15m → 5m breakout</button>
+        <button data-fo="list">📋 All F&amp;O: futures, OI buildup, PCR</button>
         <button data-fo="chain">🔗 Option chain</button>
       </span>
       <span id="foControls"></span>
-      <button onclick="foTab === 'chain' ? loadChain() : loadFo()">Refresh</button>
+      <button onclick="foTab === 'chain' ? loadChain() : foTab === 'orb' ? loadOrb() : loadFo()">Refresh</button>
     </div>
     <div id="foOut"><div class="sm">Open this panel to load futures &amp; options.</div></div>
-    <div class="sm" style="margin-top:8px;line-height:1.6"><b>Source:</b> NSE's official end-of-day F&amp;O file (every futures and options contract), published each evening after the close; NSE blocks automated access to its live option chain, so futures prices, OI and option prices are from the last session shown above. <b>Live spot</b> is the current stock/index price, refreshed every minute in market hours.
+    <div class="sm" style="margin-top:8px;line-height:1.6"><b>⚡ Live trigger (15m → 5m breakout)</b> scans every F&amp;O stock and index on its own, with no watchlist needed. At the open it waits for the <b>first 15-minute candle (9:15–9:30)</b> and takes its high and low. It then switches to <b>5-minute candles</b>: when the <b>first 5-minute candle (9:30–9:35) closes above the 15-minute high</b>, the stock is a <b class="up">bullish trigger</b>; when it closes below the 15-minute low, it's a <b class="down">bearish trigger</b>. While that 5-minute candle is still forming, stocks trading beyond the range are shown as <b>forming</b> so you can get ready before the close confirms it. Choose <b>Include later 5-min breakouts</b> to also catch the first 5-minute close outside the range after 9:35 (up to 2:45 pm). The list refreshes every 20 seconds in market hours and can beep and notify you on each new trigger. <b>Vol ×</b> compares the trigger candle's volume with the average 5 minutes of the opening 15. Candles are from Yahoo Finance and can lag the exchange by up to a minute.<br>
+      <b>Source:</b> NSE's official end-of-day F&amp;O file (every futures and options contract), published each evening after the close; NSE blocks automated access to its live option chain, so futures prices, OI and option prices are from the last session shown above. <b>Live spot</b> is the current stock/index price, refreshed every minute in market hours.
       <b>Buildup</b> compares the near-month future's price change with the change in futures OI: <span class="fotag lb">Long buildup</span> price ↑ OI ↑ (fresh buying), <span class="fotag sb">Short buildup</span> price ↓ OI ↑ (fresh selling), <span class="fotag sc">Short covering</span> price ↑ OI ↓ (shorts exiting), <span class="fotag lu">Long unwinding</span> price ↓ OI ↓ (longs exiting).
       <b>PCR</b> = put OI ÷ call OI for the nearest expiry (above ~1.2 often reads bullish/oversold, below ~0.7 bearish/overbought). <b>Max pain</b> is the strike where option buyers lose most at expiry. <b>Support / resistance</b> are the strikes with the biggest put / call OI. <b>IV</b> is the at-the-money implied volatility (Black-Scholes).</div>
   </details>
@@ -1230,6 +1233,7 @@
     return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
   }
   const fmtNum = (x) => x.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtPts = (x) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(x).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   // Live mode: while the market is open the "Today" view re-fetches every INDEX_REFRESH seconds,
   // and tiles whose level moved since the last fetch flash green (up) or red (down).
   const INDEX_REFRESH = 15;
@@ -1285,8 +1289,8 @@
     const tag = s.custom ? `<span class="tag" title="NSE has no index for this sector; built from its Nifty 500 stocks">CUSTOM</span>` : s.approx ? `<span class="tag" title="Index history unavailable for this period; showing the average of its stocks">≈</span>` : "";
     const breadth = s.count ? `<span class="ib"><span class="a">▲${s.adv}</span> <span class="d">▼${s.dec}</span></span>` : `<span class="ib">&nbsp;</span>`;
     const fl = indexFlash[s.sector] || "";
-    return `<button class="itile ${big ? "big" : ""} ${fl} ${sectorSel === s.sector ? "sel" : ""}" style="background:${idxColor(s.chg, scale)}" onclick="pickSector(${esc(JSON.stringify(s.sector))})" title="${esc(s.sector)}: ${fmtPct(s.chg)}${s.count ? `. ${s.adv} of ${s.count} stocks up, ${s.dec} down. Click to see them.` : ""}">
-      <span class="in">${esc(s.sector)}</span><span class="iv ${fl}">${val}</span><span class="ic">${fmtPct(s.chg)}</span>${breadth}${tag}</button>`;
+    return `<button class="itile ${big ? "big" : ""} ${fl} ${sectorSel === s.sector ? "sel" : ""}" style="background:${idxColor(s.chg, scale)}" onclick="pickSector(${esc(JSON.stringify(s.sector))})" title="${esc(s.sector)}: ${s.pts != null ? `${fmtPts(s.pts)} pts, ` : ""}${fmtPct(s.chg)}${s.count ? `. ${s.adv} of ${s.count} stocks up, ${s.dec} down. Click to see them.` : ""}">
+      <span class="in">${esc(s.sector)}</span><span class="iv ${fl}">${val}</span><span class="ic">${s.pts != null ? `${fmtPts(s.pts)} <span class="ip">(${fmtPct(s.chg)})</span>` : fmtPct(s.chg)}</span>${breadth}${tag}</button>`;
   }
   function renderIndices() {
     const out = document.getElementById("sectorOut");
@@ -1385,19 +1389,22 @@
   })();
 
   // ---- 📈 Futures & Options ----
-  let foData = null, foTab = "list", foChain = null, foSym = "NIFTY";
+  let foData = null, foTab = "orb", foChain = null, foSym = "NIFTY";
   const foState = { type: "all", buildup: "", q: "", sort: "val", strikes: "15" };
   const foNum = (n) => n == null ? "—" : Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });
   const foBig = (n) => n == null ? "—" : Math.abs(n) >= 1e7 ? `${(n / 1e7).toFixed(2)} Cr` : Math.abs(n) >= 1e5 ? `${(n / 1e5).toFixed(2)} L` : Number(n).toLocaleString("en-IN");
   const foSigned = (n, f = foBig) => n == null ? "—" : `<span class="${n >= 0 ? "up" : "down"}">${n > 0 ? "+" : ""}${f(n)}</span>`;
   const foTag = (b) => !b ? "—" : `<span class="fotag ${({ "Long buildup": "lb", "Short buildup": "sb", "Short covering": "sc", "Long unwinding": "lu" })[b] || "nt"}">${esc(b)}</span>`;
   const expLabel = (iso) => iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { timeZone: "UTC", day: "2-digit", month: "short", year: "2-digit" }) : "—";
-  const liveCell = (l) => l ? `<b>${foNum(l.ltp)}</b> ${l.chg != null ? pct(l.chg) : ""}` : "—";
+  const ptsSpan = (x) => x == null ? "" : `<span class="${x >= 0 ? "up" : "down"}">${x >= 0 ? "+" : "−"}${foNum(Math.abs(x))}</span>`;
+  const liveCell = (l) => l ? `<b>${foNum(l.ltp)}</b> ${l.pts != null ? `${ptsSpan(l.pts)} (${l.chg != null ? pct(l.chg) : ""})` : l.chg != null ? pct(l.chg) : ""}` : "—";
 
   document.querySelectorAll("#foTabs button").forEach((b) => b.onclick = () => {
     document.querySelectorAll("#foTabs button").forEach((x) => x.classList.toggle("on", x === b));
     foTab = b.dataset.fo;
-    if (foTab === "chain" && (!foChain || foChain.symbol !== foSym)) loadChain(); else renderFo();
+    if (foTab === "chain" && (!foChain || foChain.symbol !== foSym)) loadChain();
+    else if (foTab === "orb" && !orb.at) loadOrb();
+    else renderFo();
   });
 
   async function loadFo(quiet) {
@@ -1410,7 +1417,7 @@
       document.getElementById("foMeta").textContent = `· ${r.count} underlyings · F&O data: ${dateLabel(r.date)} close`;
       if (foTab === "list") renderFo();
     } catch (e) {
-      if (!quiet) out.innerHTML = `<div class="warn">Couldn't load F&amp;O data: ${esc(e.message)}</div>`;
+      if (!quiet || foTab === "orb") out.innerHTML = `<div class="warn">Couldn't load F&amp;O data: ${esc(e.message)}</div>`;
     }
   }
 
@@ -1434,7 +1441,14 @@
 
   function foControls() {
     const ctl = document.getElementById("foControls");
-    if (foTab === "list") {
+    if (foTab === "orb") {
+      const opt = (v, label, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`;
+      ctl.innerHTML = `<label>Show <select onchange="orbSet('show', this.value)">${opt("bull", "🟢 Bullish: closed above 15m high", orbState.show)}${opt("bear", "🔴 Bearish: closed below 15m low", orbState.show)}${opt("both", "Bullish + bearish", orbState.show)}${opt("all", "Everything (incl. inside / waiting)", orbState.show)}</select></label>
+        <label title="First 5-min only: the 9:30–9:35 candle must close beyond the 15-minute range. Later: also the first 5-minute close beyond it after 9:35.">Trigger candle <select onchange="orbSet('rule', this.value)">${opt("first", "First 5-min candle only (9:30–9:35)", orbState.rule)}${opt("later", "Include later 5-min breakouts", orbState.rule)}</select></label>
+        <label>Type <select onchange="orbSet('type', this.value)">${opt("stock", "Stocks", orbState.type)}${opt("index", "Indices", orbState.type)}${opt("all", "Stocks + indices", orbState.type)}</select></label>
+        <label><input type="search" placeholder="Filter symbol" value="${esc(orbState.q)}" oninput="orbState.q=this.value;renderOrbTable()" style="width:120px" /></label>
+        <label title="Beep and show a browser notification on each new trigger."><input type="checkbox" ${orbState.alert ? "checked" : ""} onchange="orbSet('alert', this.checked); if (this.checked) askNotify()" /> 🔔 Alerts</label>`;
+    } else if (foTab === "list") {
       const opt = (v, label, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`;
       ctl.innerHTML = `<label>Show <select onchange="foState.type=this.value;renderFo()">${opt("all", "Indices + stocks", foState.type)}${opt("index", "Indices only", foState.type)}${opt("stock", "Stocks only", foState.type)}</select></label>
         <label>Buildup <select onchange="foState.buildup=this.value;renderFo()">${opt("", "Any", foState.buildup)}${["Long buildup", "Short buildup", "Short covering", "Long unwinding"].map((b) => opt(b, b, foState.buildup)).join("")}</select></label>
@@ -1452,6 +1466,13 @@
   function renderFo() {
     foControls();
     const out = document.getElementById("foOut");
+    if (foTab === "orb") {
+      out.innerHTML = `<div class="livebar" id="orbBar"></div><div class="table-wrap" style="max-height:620px;overflow:auto"><table>
+        <thead><tr><th>Symbol</th><th>Live price</th><th>15-min candle (9:15–9:30)</th><th>Trigger 5-min candle</th><th>Signal</th><th>Close beyond range</th><th>Since trigger</th><th>Vol ×</th></tr></thead>
+        <tbody id="orbRows"></tbody></table></div>`;
+      renderOrbTable();
+      return;
+    }
     if (foTab === "list") {
       if (!foData) { out.innerHTML = `<div class="sm">Loading…</div>`; return; }
       out.innerHTML = `<div class="sm" id="foLiveNote" style="margin-bottom:6px"></div><div class="table-wrap" style="max-height:560px;overflow:auto"><table>
@@ -1538,13 +1559,141 @@
       <div class="sm" style="margin-top:6px">${esc(c.symbol)} options at ${dateLabel(c.date)}'s close. OI and volume in shares/units (divide by lot size ${foNum(c.lot)} for lots). Shaded cells are in the money; the blue line marks the at-the-money strike. Bar length = OI relative to the largest strike shown.</div>`;
   }
 
+  // ---- ⚡ Live 15m → 5m opening-range breakout across every F&O symbol ----
+  const orb = { data: {}, at: null, busy: false, seen: null, done: 0, total: 0 };
+  const orbState = Object.assign({ show: "bull", rule: "first", type: "stock", q: "", alert: true }, (() => { try { return JSON.parse(localStorage.getItem("orbSettings")) || {}; } catch { return {}; } })());
+  function orbSet(k, v) {
+    orbState[k] = v;
+    try { localStorage.setItem("orbSettings", JSON.stringify({ show: orbState.show, rule: orbState.rule, type: orbState.type, alert: orbState.alert })); } catch {}
+    renderOrbTable();
+  }
+  const istMin = () => { const d = new Date(Date.now() + 19800000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
+  const orbTrig = (x) => x.trigger && (orbState.rule === "later" || x.trigger.first) ? x.trigger : null;
+
+  async function loadOrb(quiet) {
+    if (orb.busy) return;
+    orb.busy = true;
+    const out = document.getElementById("foOut");
+    try {
+      if (!foData) {
+        if (foTab === "orb" && !quiet) out.innerHTML = `<div class="sm">Loading the F&amp;O list from NSE…</div>`;
+        await loadFo(true);
+        if (!foData) { if (foTab === "orb") out.innerHTML = `<div class="warn">Couldn't load the F&amp;O list from NSE. Try Refresh in a minute.</div>`; return; }
+      }
+      const syms = foData.rows.map((r) => r.symbol);
+      const batches = [];
+      for (let i = 0; i < syms.length; i += 40) batches.push(syms.slice(i, i + 40));
+      orb.total = syms.length; orb.done = 0;
+      if (foTab === "orb" && !orb.at) renderFo();
+      let next = 0;
+      await Promise.all(Array.from({ length: 4 }, async () => {
+        while (next < batches.length) {
+          const b = batches[next++];
+          try {
+            const r = await (await fetch(`/api/fo-breakout?symbols=${encodeURIComponent(b.join(","))}`, { cache: "no-store" })).json();
+            Object.assign(orb.data, r.results || {});
+          } catch {}
+          orb.done += b.length;
+          if (foTab === "orb") renderOrbTable();
+        }
+      }));
+      orb.at = Date.now();
+      orbAlerts();
+      if (foTab === "orb") renderOrbTable();
+    } finally {
+      orb.busy = false;
+    }
+  }
+
+  // Beep + notify on triggers not seen before (the first load only records what's already there).
+  function orbAlerts() {
+    const fresh = [];
+    const first = !orb.seen;
+    if (first) orb.seen = new Set();
+    for (const [sym, x] of Object.entries(orb.data)) {
+      const t = orbTrig(x);
+      if (!t) continue;
+      const key = `${x.date}|${sym}|${t.side}|${t.t}`;
+      if (orb.seen.has(key)) continue;
+      orb.seen.add(key);
+      const row = foData?.rows.find((r) => r.symbol === sym);
+      if (!first && (orbState.type === "all" || row?.type === orbState.type) && (orbState.show === "both" || orbState.show === "all" || (orbState.show === "bull") === (t.side === "BULL"))) fresh.push({ sym, t });
+    }
+    if (!fresh.length || !orbState.alert) return;
+    beep();
+    const text = fresh.slice(0, 8).map((f) => `${f.sym} ${f.t.side === "BULL" ? "▲ above" : "▼ below"} 15m ${f.t.side === "BULL" ? "high" : "low"} @ ${fmt(f.t.price)}`).join(", ") + (fresh.length > 8 ? ` +${fresh.length - 8} more` : "");
+    try { if (window.Notification && Notification.permission === "granted") new Notification(`⚡ ${fresh.length} new F&O breakout${fresh.length > 1 ? "s" : ""}`, { body: text, tag: "orb" }); } catch {}
+  }
+
+  function orbPhase() {
+    const any = Object.values(orb.data).find((x) => x.date);
+    const day = any?.date;
+    const todayIso = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
+    const m = istMin();
+    if (!marketOpen()) return day && day !== todayIso ? `<span class="pill">MARKET CLOSED</span> Showing the last session (<b>${dateLabel(day)}</b>). Live triggers start at 9:30 IST on the next trading day.` : `<span class="pill">MARKET CLOSED</span> Showing today's session.`;
+    if (m < 570) return `<span class="pill open">LIVE</span> <b>First 15-minute candle is forming</b> (9:15–9:30). Its high and low are being set; triggers start once the 9:30–9:35 candle closes.`;
+    if (m < 575) return `<span class="pill open">LIVE</span> <b>First 5-minute candle is forming</b> (9:30–9:35). Stocks beyond the 15-minute range right now are marked <b>FORMING</b>; they confirm at 9:35.`;
+    return `<span class="pill open">LIVE</span> 15-minute range set, 5-minute triggers confirmed.`;
+  }
+
+  function renderOrbTable() {
+    const body = document.getElementById("orbRows"), bar = document.getElementById("orbBar");
+    if (!body) return;
+    if (!foData) { body.innerHTML = `<tr><td colspan="8" class="empty">Loading the F&amp;O list…</td></tr>`; return; }
+    const q = orbState.q.trim().toUpperCase();
+    const rows = foData.rows.filter((r) => (orbState.type === "all" || r.type === orbState.type) && (!q || r.symbol.includes(q)))
+      .map((r) => ({ r, x: orb.data[r.symbol] })).filter((o) => o.x && o.x.status !== "NO_DATA");
+    let bull = 0, bear = 0, formingN = 0;
+    for (const o of rows) { const t = orbTrig(o.x); if (t) t.side === "BULL" ? bull++ : bear++; if (!t && o.x.forming) formingN++; }
+    const want = (o) => {
+      const t = orbTrig(o.x), side = t?.side || o.x.forming;
+      if (orbState.show === "all") return true;
+      if (!side) return false;
+      return orbState.show === "both" || (orbState.show === "bull") === (side === "BULL");
+    };
+    const shown = rows.filter(want).sort((a, b) => {
+      const ta = orbTrig(a.x), tb = orbTrig(b.x);
+      if (!!ta !== !!tb) return ta ? -1 : 1;
+      if (ta && tb && ta.first !== tb.first) return ta.first ? -1 : 1;
+      return (tb?.beyondPct ?? -1e9) - (ta?.beyondPct ?? -1e9) || (b.x.chg ?? 0) - (a.x.chg ?? 0);
+    });
+    if (bar) bar.innerHTML = `${orbPhase()}<br><span class="up">▲ ${bull} bullish</span> · <span class="down">▼ ${bear} bearish</span>${formingN ? ` · ${formingN} forming` : ""} · ${rows.length} of ${orb.total || foData.count} symbols checked${orb.busy && orb.done < orb.total ? ` (scanning ${orb.done}/${orb.total}…)` : ""}${orb.at ? ` · updated ${new Date(orb.at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" })} IST` : ""}${marketOpen() ? " · auto-refresh 20s" : ""}`;
+    const tag = (side, txt) => `<span class="fotag ${side === "BULL" ? "lb" : "sb"}">${txt}</span>`;
+    body.innerHTML = shown.length ? shown.map(({ r, x }) => {
+      const t = orbTrig(x), c = x.candle, g = x.range;
+      let sig;
+      if (t) sig = `${tag(t.side, t.side === "BULL" ? "▲ BULLISH · BUY CE" : "▼ BEARISH · BUY PE")}<div class="sm">${t.first ? "first 5-min close" : "later 5-min close"} · ${ist(t.t)}</div>`;
+      else if (x.forming) sig = `<span class="fotag nt">${x.forming === "BULL" ? "▲" : "▼"} FORMING</span><div class="sm">${x.forming === "BULL" ? "above high" : "below low"} now, waiting for the 5-min close</div>`;
+      else if (x.status === "WAIT_15M") sig = `<span class="fotag nt">15-min forming</span>`;
+      else if (x.status === "WAIT_5M") sig = `<span class="fotag nt">5-min forming</span><div class="sm">inside the range</div>`;
+      else sig = `<span class="fotag nt">Inside range</span><div class="sm">${x.trigger && !t ? `later ${x.trigger.side === "BULL" ? "▲" : "▼"} at ${ist(x.trigger.t)}` : "no breakout"}</div>`;
+      const since = t ? `${pct(t.movePct)}<div class="sm">best ${pct(t.bestPct)}${t.failed ? ` · <span class="down">through other side</span>` : t.backInside ? ` · <span class="warn">back inside</span>` : ""}</div>` : "—";
+      const vol = t ? (t.first ? c?.volX : t.volX) : c?.volX;
+      return `<tr>
+        <td><strong>${esc(r.symbol)}</strong> ${r.type === "index" ? `<span class="fotag nt">INDEX</span>` : ""}<div class="sm">Lot ${foNum(r.lot)}</div>
+          <div class="links"><a class="lnk" href="#" onclick="openChain('${esc(r.symbol)}');return false;">Chain</a>${r.type === "stock" ? checkLink(r.symbol) : ""}${r.type === "stock" ? `<a class="lnk" href="${tvUrl(r.symbol, "5m")}" target="_blank" rel="noopener">Chart</a>` : ""}</div></td>
+        <td class="num"><b>${foNum(x.ltp)}</b><div class="sm">${ptsSpan(x.pts)} ${x.chg != null ? `(${pct(x.chg)})` : ""}</div></td>
+        <td class="num">${g ? `H <b class="up">${foNum(g.high)}</b><br>L <b class="down">${foNum(g.low)}</b><div class="sm">range ${g.rangePct}%</div>` : "—"}</td>
+        <td class="num">${c ? `C <b>${foNum(c.c)}</b><div class="sm">O ${foNum(c.o)} · H ${foNum(c.h)} · L ${foNum(c.l)}</div><div class="sm">${ist(c.t)}–${ist(c.t + 300)}</div>` : "—"}</td>
+        <td>${sig}</td>
+        <td class="num">${t ? `<b class="${t.side === "BULL" ? "up" : "down"}">${fmt(t.beyondPct)}%</b><div class="sm">at ${foNum(t.price)}</div>` : "—"}</td>
+        <td class="num">${since}</td>
+        <td class="num">${vol != null && r.type === "stock" ? `${fmt(vol)}×` : "—"}</td></tr>`;
+    }).join("") : `<tr><td colspan="8" class="empty">${orb.busy && !orb.at ? "Scanning every F&amp;O symbol…" : orbState.show === "bull" ? "No F&amp;O symbol has closed above its 15-minute high yet." : orbState.show === "bear" ? "No F&amp;O symbol has closed below its 15-minute low yet." : "Nothing matches these filters."}</td></tr>`;
+  }
+  setInterval(() => {
+    if (!document.getElementById("foBox").open || !marketOpen() || foTab !== "orb") return;
+    if (!orb.at || Date.now() - orb.at >= 20000) loadOrb(true);
+    else renderOrbTable();
+  }, 5000);
+
   // Live spot prices move during market hours; F&O data itself updates once a day.
   setInterval(() => {
     if (!document.getElementById("foBox").open || document.hidden || !marketOpen()) return;
     if (foTab === "list" && foData) loadFo(true);
     else if (foTab === "chain" && foChain && !foChain.error) loadChain(foChain.expiry, true);
   }, 60000);
-  if (document.getElementById("foBox").open) loadFo();
+  if (document.getElementById("foBox").open) loadOrb();
 
   // ---- Zerodha Kite: live premiums + confirmed one-click orders ----
   let kite = { configured: false, connected: false }, kiteQ = { options: {}, spots: {} }, kitePos = [], kiteBusy = false, kiteMsg = "";
@@ -1775,7 +1924,7 @@
   // Live spot: Kite's when connected, otherwise Yahoo's.
   function otSpot(r) {
     const k = kite.connected && kiteQ.spots?.[r.symbol];
-    return k ? `<b>${foNum(k.ltp)}</b> ${k.chg != null ? pct(k.chg) : ""} <span class="kite-tag" title="Live spot from Kite">KITE</span>` : `<b>${foNum(r.ltp)}</b> ${r.quote?.changePct != null ? pct(r.quote.changePct) : ""}`;
+    return k ? `<b>${foNum(k.ltp)}</b> ${k.chg != null ? pct(k.chg) : ""} <span class="kite-tag" title="Live spot from Kite">KITE</span>` : `<b>${foNum(r.ltp)}</b> ${r.quote?.prevClose ? `${ptsSpan(r.ltp - r.quote.prevClose)} ` : ""}${r.quote?.changePct != null ? pct(r.quote.changePct) : ""}`;
   }
   function otTriggerRow(r, side) {
     const isCe = side === "CE", lvl = isCe ? r.or.high : r.or.low, rd = r.readiness[side];
