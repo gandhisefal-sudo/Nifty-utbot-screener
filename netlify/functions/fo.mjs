@@ -32,7 +32,7 @@ async function liveSpot(rows) {
   for (const [sym, m] of Object.entries(metas)) {
     const ltp = m.regularMarketPrice, prev = m.chartPreviousClose ?? m.previousClose;
     if (!ltp) continue;
-    out[sym] = { ltp: r2(ltp), chg: prev ? r2(((ltp - prev) / prev) * 100) : null };
+    out[sym] = { ltp: r2(ltp), chg: prev ? r2(((ltp - prev) / prev) * 100) : null, pts: prev ? r2(ltp - prev) : null };
     asOf = Math.max(asOf, (m.regularMarketTime || 0) * 1000);
   }
   return { spot: out, asOf: asOf || null };

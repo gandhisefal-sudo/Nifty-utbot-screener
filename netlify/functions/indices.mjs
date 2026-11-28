@@ -154,7 +154,7 @@ export default async (req) => {
       if (chg == null) return null;
       return {
         sector: ix.name, group: ix.group || "sector", custom: !!ix.custom, approx: !iq && !ix.custom,
-        value: level ? r2(level.ltp) : null, chg: r2(chg), avg: avg == null ? null : r2(avg),
+        value: level ? r2(level.ltp) : null, chg: r2(chg), pts: iq ? r2(iq.ltp - iq.prev) : null, avg: avg == null ? null : r2(avg),
         count: stocks.length, adv: stocks.filter((x) => x.chg > 0).length, dec: stocks.filter((x) => x.chg < 0).length,
         stocks,
       };
